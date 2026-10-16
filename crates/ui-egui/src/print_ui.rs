@@ -128,7 +128,7 @@ impl Default for PrintDraft {
             content: Content::DocumentAndMarkups,
             as_image: false,
             dpi: 300.0,
-            paper: 0,
+            paper: pdfcraft_engine::print::DEFAULT_PAPER,
             sheet: 0,
             current_page: 0,
             driver_options: None,
@@ -904,7 +904,7 @@ pub(crate) fn body(
                 });
                 ui.end_row();
                 ui.label(tl!("Paper:"));
-                let paper_name = PAPERS.get(d.paper).map_or("US Letter", |p| p.0);
+                let paper_name = PAPERS.get(d.paper).map_or("A4", |p| p.0);
                 let before = d.paper;
                 egui::ComboBox::from_id_salt("paper").selected_text(tl!(paper_name)).width(260.0).show_ui(ui, |ui| {
                     for (i, (name, _)) in PAPERS.iter().enumerate() {

@@ -949,3 +949,11 @@ fn cmyk_and_ycck_jpegs_export_in_the_colours_the_page_shows() {
         }
     }
 }
+
+#[test]
+fn a_blank_document_without_a_size_is_a4() {
+    assert_eq!(DEFAULT_PAGE, A4);
+    let doc = reopen(&blank(DEFAULT_PAGE.0, DEFAULT_PAGE.1, 1).unwrap());
+    let sizes: Vec<f64> = pages(&doc).iter().flat_map(media).collect();
+    assert!((sizes[2] - 595.28).abs() < 0.01 && (sizes[3] - 841.89).abs() < 0.01, "{sizes:?}");
+}
