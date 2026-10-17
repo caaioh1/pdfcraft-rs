@@ -923,6 +923,7 @@ fn content_page(edit: &Edit) -> Option<usize> {
         | Edit::EditTextLine { page, .. }
         | Edit::EditTextBlock { page, .. }
         | Edit::EditPageImage { page, .. }
+        | Edit::DeleteDrawnBox { page, .. }
         | Edit::AddText { page, .. }
         | Edit::AddImage { page, .. }
         | Edit::UpdateContent { page, .. }

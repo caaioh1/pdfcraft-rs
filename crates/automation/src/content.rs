@@ -222,6 +222,48 @@ impl Automation {
         Ok(json!({"page":page+1,"generation":doc.edit_generation(),"count":items.len(),"objects":items}))
     }
 
+    /// The boxes (filled or framed rectangles) drawn on a page, with displayed rectangles.
+    pub(crate) fn box_list(&self, a: &Args) -> Result<Value> {
+        let page = self.page(a)?;
+        let doc = self.doc(a)?;
+        let info = doc.info.pages.get(page).ok_or_else(|| bad("the page no longer exists"))?;
+        let boxes = doc.drawn_boxes(page).map_err(failed)?;
+        let items = boxes
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                let rect = crate::comments::rect_to_view(info, b.rect.map(|v| v as f32));
+                let fill = b.fill.map(|[r, g, bl]| {
+                    let h = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+                    format!("#{:02x}{:02x}{:02x}", h(r), h(g), h(bl))
+                });
+                json!({"index":i.saturating_add(1),"rect":rect.map(|v|(f64::from(v)*100.0).round()/100.0),
+                "filled":b.filled,"stroked":b.stroked,"fill":fill,"operators":b.operators()})
+            })
+            .collect::<Vec<_>>();
+        Ok(json!({"page":page+1,"generation":doc.edit_generation(),"count":items.len(),"boxes":items}))
+    }
+
+    /// Delete one box from `box_list`, optionally with the lines of text wholly inside it.
+    pub(crate) fn box_delete(&mut self, a: &Args) -> Result<Value> {
+        let page = self.page(a)?;
+        let index = a
+            .get("index")
+            .and_then(Value::as_u64)
+            .and_then(|i| i.checked_sub(1))
+            .and_then(|i| usize::try_from(i).ok())
+            .ok_or_else(|| bad("index must be a positive integer from box_list"))?;
+        let with_text = a.opt_bool("with_text")?.unwrap_or(false);
+        let doc = self.doc(a)?;
+        if let Some(g) = a.get("generation") {
+            let g = g.as_u64().ok_or_else(|| bad("generation must be a non-negative integer from box_list"))?;
+            if g != doc.edit_generation() {
+                return Err(failed("the document changed; call box_list again before deleting"));
+            }
+        }
+        self.apply(a, Edit::DeleteDrawnBox { page, index, with_text })
+    }
+
     pub(crate) fn object_move(&mut self, a: &Args) -> Result<Value> {
         use pdfcraft_engine::{MAX_MOVE_OBJECTS, ObjectKind, ObjectTarget};
         let page = self.page(a)?;

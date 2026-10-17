@@ -325,6 +325,8 @@
 	Page grid	Бет торы
 	Rotate	Бұру
 	Delete	Жою
+	Delete box	Жақтауды жою
+	Delete box and its text	Жақтауды мәтінімен жою
 	Extract	Шығарып алу
 	Insert	Енгізу
 	Replace	Ауыстыру

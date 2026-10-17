@@ -336,6 +336,8 @@
 	Page grid	Oldalrács
 	Rotate	Forgatás
 	Delete	Törlés
+	Delete box	Keret törlése
+	Delete box and its text	Keret törlése a szövegével
 	Extract	Kinyerés
 	Insert	Beszúrás
 	Replace	Csere

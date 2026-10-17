@@ -338,6 +338,8 @@
 	Page grid	Grille de pages
 	Rotate	Pivoter
 	Delete	Supprimer
+	Delete box	Supprimer le cadre
+	Delete box and its text	Supprimer le cadre et son texte
 	Extract	Extraire
 	Insert	Insérer
 	Replace	Remplacer

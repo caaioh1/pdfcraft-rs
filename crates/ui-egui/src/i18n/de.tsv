@@ -338,6 +338,8 @@
 	Page grid	Seitenraster
 	Rotate	Drehen
 	Delete	Löschen
+	Delete box	Kasten löschen
+	Delete box and its text	Kasten mit Text löschen
 	Extract	Extrahieren
 	Insert	Einfügen
 	Replace	Ersetzen

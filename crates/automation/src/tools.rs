@@ -172,6 +172,12 @@ pub fn tools() -> Vec<ToolDef> {
                     "type":"object","properties":{"kind":{"type":"string","enum":["added","text","image"]},"index":{"type":"integer","minimum":1}},"required":["kind","index"],"additionalProperties":false}},
                 "offset":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2},
                 "generation":{"type":"integer","minimum":0,"description":"Use generation returned by object_list to reject a stale selection."}}), &["doc","page","objects","offset"])),
+        t("box_list", "List drawn boxes", "List the filled or framed rectangles drawn on a page (a shaded note, a bordered paragraph, a highlight), top to bottom, with 1-based index, displayed rectangle, filled/stroked, fill colour and document generation. Rotated shapes, curves, thin rules, page backgrounds and shapes inside Form XObjects are not boxes. Indexes change when content changes; pass generation to box_delete to reject stale references.")
+            .ro().with(schema(json!({"doc":doc(),"page":{"type":"integer","minimum":1}}), &["doc","page"])),
+        t("box_delete", "Delete a drawn box", "Delete one box from box_list: its fill and border (all the painting operators that draw it) and nothing else, byte for byte. With with_text, the lines of text that lie wholly inside the box go too. One undo step; refused, changing nothing, when the box or the text cannot be removed cleanly.")
+            .with(schema(json!({"doc":doc(),"page":{"type":"integer","minimum":1},"index":{"type":"integer","minimum":1,"description":"Box number from box_list."},
+                "with_text":{"type":"boolean","description":"Also delete the lines of text wholly inside the box (default false)."},
+                "generation":{"type":"integer","minimum":0,"description":"Use generation returned by box_list to reject a stale reference."}}), &["doc","page","index"])),
         t("text_word_count", "Word count", "Count Unicode words and characters on selected pages (default all), with totals and per-page counts. Table/code exclusions use PDF structure tags, not visual guesses; unclassified text is retained. Image exclusion removes Figure-tagged and invisible/OCR text. Does not run OCR. Copy permission is required. Fails rather than returning a partial total when a page cannot be read.")
             .ro()
             .cmd("file.word_count")

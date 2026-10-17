@@ -495,6 +495,10 @@ pub struct DocView {
     pub(crate) move_background: crate::content_ui::MoveBackground,
     /// Edit text & images: the images per page (by document generation), and the selected one.
     pub(crate) edit_images: HashMap<usize, (u64, Vec<pdfcraft_engine::PageImage>)>,
+    /// Edit text & images: the drawn boxes per page (by document generation), and the one a
+    /// right-click opened a menu for: (page, index).
+    pub(crate) edit_boxes: HashMap<usize, (u64, Vec<pdfcraft_engine::DrawnBox>)>,
+    pub(crate) box_context: Option<(usize, usize)>,
     pub(crate) objects: crate::object_ui::ObjectSelection,
     pub image_selection: Option<crate::edit_text_ui::ImageSelection>,
     /// Select tool: the picture clicked, to copy in its original format.
@@ -752,6 +756,8 @@ impl DocView {
             text_background: Default::default(),
             move_background: Default::default(),
             edit_images: HashMap::new(),
+            edit_boxes: HashMap::new(),
+            box_context: None,
             objects: Default::default(),
             image_selection: None,
             picked_image: None,
@@ -2733,6 +2739,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         if resp.secondary_clicked() {
             // Set again below when the right-click lands on a link.
             view.links.context = None;
+            view.box_context = None;
         }
         for &i in &visible_pages {
             badge_hover = None;
@@ -3063,6 +3070,31 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             // input is blocked (another tab, a dialog, the window unfocused): the boxes stay drawn
             // instead of vanishing until the pointer comes back.
             let others_own_pointer = on_objects || on_content;
+            // Edit text & images: the boxes this page draws. A right-click inside one opens the box
+            // menu (below) rather than a picture's, and the box under the pointer is outlined.
+            let boxes = if tool == QuickTool::EditText && can_modify {
+                let generation = doc.edit_generation();
+                match view.edit_boxes.get(&i) {
+                    Some((g, b)) if *g == generation => b.clone(),
+                    _ => {
+                        let b = doc.drawn_boxes(i).unwrap_or_default();
+                        view.edit_boxes.insert(i, (generation, b.clone()));
+                        b
+                    }
+                }
+            } else {
+                Vec::new()
+            };
+            if !boxes.is_empty() {
+                if resp.secondary_clicked()
+                    && let Some(p) = pointer.filter(|p| xf.rect.contains(*p))
+                    && let Some(index) = crate::box_ui::box_at(&xf, info, i, &boxes, p)
+                {
+                    view.box_context = Some((i, index));
+                }
+                crate::box_ui::paint_hover(ui, &xf, info, i, &boxes, pointer);
+            }
+            let box_owns = view.box_context.is_some_and(|(page, _)| page == i) && (resp.secondary_clicked() || resp.context_menu_opened());
             let on_edit_text = (tool == QuickTool::EditText || over_source) && can_modify && {
                 let generation = doc.edit_generation();
                 let images = match view.edit_images.get(&i) {
@@ -3085,7 +3117,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                     &images,
                     view,
                     &mut image_action,
-                    !others_own_pointer && (image_owns_pointer || !text_used),
+                    !others_own_pointer && !box_owns && (image_owns_pointer || !text_used),
                 );
                 !others_own_pointer && (text_used || image_used)
             };
@@ -3512,6 +3544,10 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                     view.pending_edit = crate::prepare::delete_selected(view);
                     ui.close();
                 }
+                return;
+            }
+            if let Some((page, index)) = view.box_context {
+                crate::box_ui::menu(ui, page, index, can_modify, view);
                 return;
             }
             if let Some((page, index)) = view.links.context {

@@ -323,6 +323,8 @@
 	Page grid	Sayfa ızgarası
 	Rotate	Döndür
 	Delete	Sil
+	Delete box	Kutuyu sil
+	Delete box and its text	Kutuyu ve metnini sil
 	Extract	Ayıkla
 	Insert	Ekle
 	Replace	Değiştir

@@ -649,6 +649,8 @@ pub use objects::{EditableObject, MAX_MOVE_OBJECTS, ObjectKind, ObjectTarget, ed
 
 mod flatten;
 pub use flatten::{flatten, flatten_fill_sign};
+pub mod shapes;
+pub use shapes::{DrawnBox, delete_drawn_box, drawn_boxes};
 pub mod images;
 pub use images::{ImageChange, PageImage, change_image, page_images, reading_images, rect_to_rect, turn_about_centre};
 pub mod bidi;

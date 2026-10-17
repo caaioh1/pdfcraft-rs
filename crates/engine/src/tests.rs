@@ -5801,3 +5801,49 @@ fn cropping_an_existing_image_clips_it_and_moves_with_it() {
     // No area, or a box off the image, is refused.
     assert!(s.apply(id, Edit::EditPageImage { page: 0, index: 0, change: ImageEdit::Crop([10.0, 10.0, 10.0, 50.0]) }).is_err());
 }
+
+/// Deleting a drawn box (a shaded, framed note) is one undoable edit that leaves the text and
+/// every other drawing alone.
+#[test]
+fn deleting_a_drawn_box_is_one_undoable_edit() {
+    let content = "1 0.95 0.84 rg 88 355 m 535 355 l 535 422 l 88 422 l 88 355 l h f*\n\
+        0.85 0.64 0 RG q 1 w 88 422 m 535 422 l S Q q 1 w 535 422 m 535 355 l S Q q 1 w 535 355 m 88 355 l S Q q 1 w 88 355 m 88 422 l S Q\n\
+        1 1 0 rg 106 551 66 14 re f*\nBT /F1 9 Tf 100 400 Td (Hello) Tj ET\n";
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /Contents 5 0 R /Resources << /Font << /F1 4 0 R >> >> >>".to_string(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_string(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+    ];
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
+    }
+    let xref = bytes.len();
+    bytes.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for o in offsets {
+        bytes.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes());
+
+    let mut s = Session::new();
+    let id = s.open("note.pdf", None, std::sync::Arc::new(bytes), None).unwrap();
+    let boxes = s.get(id).unwrap().drawn_boxes(0).unwrap();
+    assert_eq!(boxes.len(), 2, "the highlight and the framed note: {boxes:?}");
+    // The note is the lower one (the list runs top to bottom).
+    s.apply(id, Edit::DeleteDrawnBox { page: 0, index: 1, with_text: false }).unwrap();
+    assert_eq!(s.get(id).unwrap().can_undo(), Some("Delete box"));
+    let left = s.get(id).unwrap().drawn_boxes(0).unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].fill, Some([1.0, 1.0, 0.0]), "the highlight stays");
+    s.undo(id).unwrap();
+    assert_eq!(s.get(id).unwrap().drawn_boxes(0).unwrap().len(), 2);
+    s.redo(id).unwrap();
+    assert_eq!(s.get(id).unwrap().drawn_boxes(0).unwrap().len(), 1);
+    // A box that is not there is refused and changes nothing.
+    assert!(s.apply(id, Edit::DeleteDrawnBox { page: 0, index: 9, with_text: false }).is_err());
+    assert_eq!(s.get(id).unwrap().drawn_boxes(0).unwrap().len(), 1);
+}

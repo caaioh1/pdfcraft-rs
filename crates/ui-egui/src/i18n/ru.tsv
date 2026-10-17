@@ -358,6 +358,8 @@
 	Page grid	Сетка страниц
 	Rotate	Повернуть
 	Delete	Удалить
+	Delete box	Удалить рамку
+	Delete box and its text	Удалить рамку вместе с текстом
 	Extract	Извлечь
 	Insert	Вставить
 	Replace	Заменить

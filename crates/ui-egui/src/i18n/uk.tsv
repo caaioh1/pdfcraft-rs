@@ -363,6 +363,8 @@
 	Page grid	Сітка сторінок
 	Rotate	Повернути
 	Delete	Видалити
+	Delete box	Видалити рамку
+	Delete box and its text	Видалити рамку разом із текстом
 	Extract	Видобути
 	Insert	Вставити
 	Replace	Замінити

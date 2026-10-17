@@ -63,7 +63,7 @@ pub use pdfcraft_forms::{
 };
 
 pub use pdfcraft_a11y as a11y;
-pub use pdfcraft_edit::{BlockStyle, PageImage, RangeStyle, TextBlock, TextLine, first_undrawable};
+pub use pdfcraft_edit::{BlockStyle, DrawnBox, PageImage, RangeStyle, TextBlock, TextLine, first_undrawable};
 pub use pdfcraft_measure as measure;
 pub use pdfcraft_xfa::Report as XfaLayout;
 
@@ -276,6 +276,7 @@ fn scope_of(edit: &Edit) -> Scope {
         | Edit::EditTextLine { .. }
         | Edit::EditTextBlock { .. }
         | Edit::EditPageImage { .. }
+        | Edit::DeleteDrawnBox { .. }
         | Edit::AddText { .. }
         | Edit::AddImage { .. }
         | Edit::UpdateContent { .. }
@@ -509,6 +510,13 @@ impl Document {
     pub fn editable_objects(&self, page: usize) -> Result<Vec<EditableObject>, String> {
         let editor = self.editor.as_ref().ok_or("the document can't be read")?;
         pdfcraft_edit::editable_objects(&editor.cos, page).map_err(|e| e.to_string())
+    }
+
+    /// The boxes (filled or framed rectangles) on one page, in user space and reading order.
+    /// Indexes are zero-based and change when the page content changes.
+    pub fn drawn_boxes(&self, page: usize) -> Result<Vec<pdfcraft_edit::DrawnBox>, String> {
+        let editor = self.editor.as_ref().ok_or("the document can't be read")?;
+        pdfcraft_edit::drawn_boxes(&editor.cos, page).map_err(|e| e.to_string())
     }
 
     /// Displayed top-left-origin motion to a user-space vector. Use the linear map only,
@@ -1559,6 +1567,14 @@ pub enum Edit {
         index: usize,
         change: ImageEdit,
     },
+    /// Edit a PDF ▸ delete a box (a filled or framed rectangle) on `page`, index from
+    /// `Document::drawn_boxes`: its fill and border go, nothing else on the page changes.
+    DeleteDrawnBox {
+        page: usize,
+        index: usize,
+        /// Also delete the lines of text that lie wholly inside the box.
+        with_text: bool,
+    },
     /// Move mixed existing and added objects together. References resolve before any change;
     /// offset is a user-space vector. No retyping, reflow or font substitution is involved.
     MoveObjects {
@@ -1997,6 +2013,8 @@ impl Edit {
             Edit::EditTextLine { .. } | Edit::EditTextBlock { .. } => Label::of("Edit text"),
             Edit::RegisterTextFont { .. } => Label::of("Load document font"),
             Edit::MoveObjects { objects, .. } => plural("Move object", "Move objects", objects.len()),
+            Edit::DeleteDrawnBox { with_text: true, .. } => Label::of("Delete box and its text"),
+            Edit::DeleteDrawnBox { .. } => Label::of("Delete box"),
             Edit::EditPageImage { change, .. } => Label::of(match change {
                 ImageEdit::Move(_) => "Move image",
                 ImageEdit::Rotate(_) => "Rotate image",
@@ -2190,6 +2208,7 @@ fn check_permission(edit: &Edit, p: &pdfcraft_cos::Permissions) -> Result<(), Ed
         | Edit::EditTextBlock { .. }
         | Edit::RegisterTextFont { .. }
         | Edit::EditPageImage { .. }
+        | Edit::DeleteDrawnBox { .. }
         | Edit::Flatten { .. }
         | Edit::FlattenFillSign => {
             if p.modify() {
@@ -2522,6 +2541,9 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
             pdfcraft_edit::change_image(doc, *page, *index, &c)?;
         }
         Edit::MoveObjects { page, objects, offset } => pdfcraft_edit::move_objects(doc, *page, objects, *offset)?,
+        Edit::DeleteDrawnBox { page, index, with_text } => {
+            pdfcraft_edit::delete_drawn_box(doc, *page, *index, *with_text)?;
+        }
         Edit::EditTextBlock { page, block, text, style } => {
             pdfcraft_edit::rewrite_block(doc, *page, *block, Some(text), style)?;
         }

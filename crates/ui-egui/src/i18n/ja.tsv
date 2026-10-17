@@ -365,6 +365,8 @@
 	Page grid	ページ一覧
 	Rotate	回転
 	Delete	削除
+	Delete box	ボックスを削除
+	Delete box and its text	ボックスとその中のテキストを削除
 	Extract	抽出
 	Insert	挿入
 	Replace	置換

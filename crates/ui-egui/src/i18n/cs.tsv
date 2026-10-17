@@ -446,6 +446,8 @@ key	Space	Mezerník
 	Page grid	Mřížka stránek
 	Rotate	Otočit
 	Delete	Odstranit
+	Delete box	Odstranit rámeček
+	Delete box and its text	Odstranit rámeček i s textem
 	Extract	Extrahovat
 	Insert	Vložit
 	Replace	Nahradit

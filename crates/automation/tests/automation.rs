@@ -6495,3 +6495,60 @@ fn a_root_less_write_output_is_atomic_too() {
     assert!(matches!(&e, ToolError::Failed(m) if m.contains("is a folder")), "{e:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A shaded, framed note with a line of text inside it, as Word and LibreOffice draw one, and
+/// a line of text outside it.
+fn boxed_note_fixture() -> Vec<u8> {
+    helvetica_page(
+        "0.96 0.84 0.5 rg 80 600 m 500 600 l 500 680 l 80 680 l 80 600 l h f*\n\
+         0.8 0.6 0 RG q 1 w 80 600 m 500 600 l S Q q 1 w 500 600 m 500 680 l S Q q 1 w 500 680 m 80 680 l S Q q 1 w 80 680 m 80 600 l S Q\n\
+         0 g BT /F1 12 Tf 100 640 Td (Check this with the client) Tj ET\n\
+         BT /F1 12 Tf 100 500 Td (Keep this line) Tj ET\n",
+    )
+}
+
+#[test]
+fn drawn_boxes_are_listed_and_deleted_with_or_without_their_text() {
+    let dir = workdir("drawn-boxes");
+    std::fs::write(dir.join("note.pdf"), boxed_note_fixture()).unwrap();
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({"path":"note.pdf"}))["doc"].as_u64().unwrap();
+    let list = ok(&mut a, "box_list", json!({"doc":doc,"page":1}));
+    assert_eq!(list["count"], 1, "{list}");
+    let note = &list["boxes"][0];
+    assert_eq!((note["index"].clone(), note["filled"].clone(), note["stroked"].clone()), (json!(1), json!(true), json!(true)));
+    assert_eq!(note["fill"], "#f5d680");
+    // Displayed rectangle: top-left origin, 792 pt tall page, box y 600..680 from the bottom.
+    let rect: Vec<f64> = note["rect"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    assert!(
+        (rect[0] - 80.0).abs() < 1.0 && (rect[1] - 112.0).abs() < 1.0 && (rect[2] - 500.0).abs() < 1.0 && (rect[3] - 192.0).abs() < 1.0,
+        "{rect:?}"
+    );
+
+    // A stale generation is refused and changes nothing.
+    let stale = a.call("box_delete", &json!({"doc":doc,"page":1,"index":1,"generation":list["generation"].as_u64().unwrap() + 7}));
+    assert!(stale.is_err());
+    assert_eq!(ok(&mut a, "box_list", json!({"doc":doc,"page":1}))["count"], 1);
+
+    // Without with_text only the drawing goes.
+    ok(&mut a, "box_delete", json!({"doc":doc,"page":1,"index":1,"generation":list["generation"]}));
+    assert_eq!(ok(&mut a, "box_list", json!({"doc":doc,"page":1}))["count"], 0);
+    let text = ok(&mut a, "text_extract", json!({"doc":doc,"pages":[1]}));
+    assert!(text.to_string().contains("Check this with the client"), "{text}");
+    ok(&mut a, "edit_undo", json!({"doc":doc}));
+    assert_eq!(ok(&mut a, "box_list", json!({"doc":doc,"page":1}))["count"], 1, "one undo restores the box");
+
+    // With with_text the line inside goes too, and the one outside stays.
+    ok(&mut a, "box_delete", json!({"doc":doc,"page":1,"index":1,"with_text":true}));
+    let text = ok(&mut a, "text_extract", json!({"doc":doc,"pages":[1]})).to_string();
+    assert!(!text.contains("Check this with the client"), "{text}");
+    assert!(text.contains("Keep this line"), "{text}");
+    ok(&mut a, "edit_undo", json!({"doc":doc}));
+    assert!(ok(&mut a, "text_extract", json!({"doc":doc,"pages":[1]})).to_string().contains("Check this with the client"), "one undo restores both");
+
+    // Bad references are refused with the document unchanged.
+    for args in [json!({"doc":doc,"page":1,"index":0}), json!({"doc":doc,"page":1,"index":9}), json!({"doc":doc,"page":9,"index":1})] {
+        assert!(a.call("box_delete", &args).is_err(), "{args}");
+    }
+    assert_eq!(ok(&mut a, "box_list", json!({"doc":doc,"page":1}))["count"], 1);
+}
