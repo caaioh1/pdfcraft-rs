@@ -782,6 +782,10 @@
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	يسأل GitHub عن أحدث إصدار. لا يُنزَّل أو يُثبَّت شيء تلقائيًا.
 	Download	تنزيل
 	Later	لاحقًا
+	Install now	التثبيت الآن
+	Downloading the update…	جارٍ تنزيل التحديث…
+	The installer is running. Save your work and close PdfCraft to finish the update.	برنامج التثبيت قيد التشغيل. احفظ عملك وأغلق PdfCraft لإكمال التحديث.
+	Couldn't install the update: {e}	تعذّر تثبيت التحديث: {e}
 	none	لا شيء
 	Declared conformance: {shown}	المطابقة المعلنة: {shown}
 	Output intent: {list}	هدف الإخراج: {list}

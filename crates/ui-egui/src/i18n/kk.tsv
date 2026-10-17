@@ -739,6 +739,10 @@
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	GitHub-тан соңғы шығарылымды сұрайды. Ештеңе автоматты түрде жүктелмейді немесе орнатылмайды.
 	Download	Жүктеп алу
 	Later	Кейінірек
+	Install now	Қазір орнату
+	Downloading the update…	Жаңартуды жүктеп алу…
+	The installer is running. Save your work and close PdfCraft to finish the update.	Орнатқыш жұмыс істеп тұр. Жаңартуды аяқтау үшін жұмысыңызды сақтап, PdfCraft бағдарламасын жабыңыз.
+	Couldn't install the update: {e}	Жаңартуды орнату мүмкін болмады: {e}
 	none	жоқ
 	Declared conformance: {shown}	Жарияланған сәйкестік: {shown}
 	Output intent: {list}	Шығыс профилі: {list}

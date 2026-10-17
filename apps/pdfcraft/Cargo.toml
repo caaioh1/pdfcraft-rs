@@ -13,6 +13,8 @@ workspace = true
 # trusted roots. No bundled root list (webpki-roots and webpki-root-certs are CDLA-licensed).
 ureq = { version = "3.4", default-features = false, features = ["rustls-no-provider", "_ring"] }
 rustls-native-certs = "0.8"
+# The installer an update downloads is checked against its published SHA-256 before it runs.
+sha2 = "0.11"
 pdfcraft-ui-egui = { workspace = true }
 # `build_info`: the version and compile-time build label for `--version` and the log.
 pdfcraft-engine = { workspace = true }

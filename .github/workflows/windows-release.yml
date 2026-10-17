@@ -1,0 +1,107 @@
+# Builds this fork's Windows installer and publishes it as a GitHub Release.
+#
+# Push a tag such as `v0.8.1` and this runs: it builds the MSI (packaging/windows/package.ps1),
+# writes SHA256SUMS.txt and creates a release with both. The app's own update check
+# (apps/pdfcraft/src/updates.rs) reads the latest release of this repository, downloads the
+# installer and refuses to run it unless its SHA-256 matches the checksum file.
+#
+# The tag is the version: it must be X.Y.Z, and larger than the version already installed, or
+# Windows Installer won't treat the MSI as an upgrade. The workflow stamps it into the build with
+# `cargo xtask version set`, so no commit is needed to bump a version.
+#
+# Run by hand (Actions ▸ Windows release ▸ Run workflow) to build without publishing: the MSI is
+# kept as a workflow artifact.
+name: Windows release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for a test build, X.Y.Z (nothing is published)"
+        type: string
+        default: "0.0.1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: 0
+      RUST_BACKTRACE: 1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Work out the version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="$INPUT_VERSION"; fi
+          if ! echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::the version must be X.Y.Z (got '$v')"; exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: windows-release-x64
+
+      - name: Stamp the version
+        shell: bash
+        run: cargo xtask version set "${{ steps.version.outputs.version }}"
+
+      - name: Install WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g "WixToolset.UI.wixext/5.0.2" "WixToolset.Util.wixext/5.0.2"
+
+      # Unsigned: sign.ps1 skips signing, with a warning, when no certificate is configured.
+      - name: Build and package
+        shell: pwsh
+        run: ./packaging/windows/package.ps1 -Arch x64
+
+      - name: Write the checksums
+        shell: pwsh
+        working-directory: dist/release
+        run: |
+          $files = @(Get-ChildItem -File | Where-Object { $_.Extension -in '.msi', '.zip' })
+          if (-not ($files | Where-Object { $_.Extension -eq '.msi' })) { throw 'no MSI was built' }
+          $lines = $files | ForEach-Object { '{0}  {1}' -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name }
+          # No BOM and a plain \n, so the app's line-by-line reader sees exactly "<hash>  <name>".
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'SHA256SUMS.txt'), (($lines -join "`n") + "`n"), (New-Object System.Text.UTF8Encoding($false)))
+          Get-Content SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-x64
+          path: dist/release/*
+          if-no-files-found: error
+
+      - name: Publish the release
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "PdfCraft ${{ steps.version.outputs.version }}" \
+            --notes "Windows installer for this fork. Run the .msi: it updates an installed PdfCraft in place and keeps its settings. Checksums are in SHA256SUMS.txt." \
+            dist/release/*.msi dist/release/*.zip dist/release/SHA256SUMS.txt

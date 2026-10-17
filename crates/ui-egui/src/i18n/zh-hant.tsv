@@ -416,6 +416,10 @@
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	向 GitHub 搜尋最新版本。不會自動下載或安裝任何內容。
 	Download	下載
 	Later	稍後
+	Install now	立即安裝
+	Downloading the update…	正在下載更新…
+	The installer is running. Save your work and close PdfCraft to finish the update.	安裝程式正在執行。請儲存您的工作並關閉 PdfCraft 以完成更新。
+	Couldn't install the update: {e}	無法安裝更新：{e}
 	none	無
 	Declared conformance: {shown}	宣告的一致性：{shown}
 	Output intent: {list}	輸出意圖：{list}

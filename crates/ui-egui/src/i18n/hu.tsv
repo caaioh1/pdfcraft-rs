@@ -753,6 +753,10 @@
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	A GitHubtól kéri le a legújabb kiadást. Semmi sem töltődik le vagy települ automatikusan.
 	Download	Letöltés
 	Later	Később
+	Install now	Telepítés most
+	Downloading the update…	Frissítés letöltése…
+	The installer is running. Save your work and close PdfCraft to finish the update.	A telepítő fut. Mentse a munkáját, és zárja be a PdfCraftot a frissítés befejezéséhez.
+	Couldn't install the update: {e}	A frissítést nem sikerült telepíteni: {e}
 	none	nincs
 	Declared conformance: {shown}	Megadott megfelelőség: {shown}
 	Output intent: {list}	Kimeneti cél: {list}

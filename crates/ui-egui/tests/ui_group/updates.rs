@@ -5,11 +5,13 @@ use std::sync::Arc;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use pdfcraft_ui_egui::PdfCraftApp;
-use pdfcraft_ui_egui::updates::{Release, UpdateSource, is_newer};
+use pdfcraft_ui_egui::updates::{InstallSource, Installer, Release, UpdateSource, is_newer};
 
 fn source(answer: Result<&str, &str>) -> UpdateSource {
     let answer = answer.map(str::to_string).map_err(str::to_string);
-    Arc::new(move || answer.clone().map(|v| Release { url: format!("https://github.com/storytold/pdfcraft/releases/tag/{v}"), version: v }))
+    Arc::new(move || {
+        answer.clone().map(|v| Release { url: format!("https://github.com/caaioh1/pdfcraft-rs/releases/tag/{v}"), version: v, installer: None })
+    })
 }
 
 fn harness(answer: Result<&str, &str>) -> Harness<'static, PdfCraftApp> {
@@ -78,7 +80,8 @@ fn an_up_to_date_or_failed_check_says_so() {
 
 #[test]
 fn nothing_is_asked_until_the_user_checks() {
-    // No check at start (the owner's decision): the source is only called from the command.
+    // A new app asks nothing by itself: the source is only called from the command (the desktop
+    // app starts the quiet check, `check_for_updates_at_start`, from main).
     let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = calls.clone();
     let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_eframe(move |_cc| {
@@ -89,7 +92,7 @@ fn nothing_is_asked_until_the_user_checks() {
         let counted = counted.clone();
         app.update_source = Some(Arc::new(move || {
             counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(Release { version: "v99.0.0".into(), url: "https://github.com/storytold/pdfcraft/releases/tag/v99.0.0".into() })
+            Ok(Release { version: "v99.0.0".into(), url: "https://github.com/caaioh1/pdfcraft-rs/releases/tag/v99.0.0".into(), installer: None })
         }));
         app
     });
@@ -100,4 +103,105 @@ fn nothing_is_asked_until_the_user_checks() {
     settle(&mut h);
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     h.get_by_label_contains("PdfCraft 99.0.0 is available");
+}
+
+fn installable(version: &str) -> Release {
+    let base = format!("https://github.com/caaioh1/pdfcraft-rs/releases/download/{version}");
+    Release {
+        version: version.into(),
+        url: format!("https://github.com/caaioh1/pdfcraft-rs/releases/tag/{version}"),
+        installer: Some(Installer {
+            file_name: "pdfcraft-99.0.0-windows-x64.msi".into(),
+            msi_url: format!("{base}/pdfcraft-99.0.0-windows-x64.msi"),
+            sums_url: format!("{base}/SHA256SUMS.txt"),
+        }),
+    }
+}
+
+fn quiet_harness(answer: Result<Release, &'static str>, install: Option<InstallSource>) -> Harness<'static, PdfCraftApp> {
+    Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        let answer = answer.clone().map_err(str::to_string);
+        app.update_source = Some(Arc::new(move || answer.clone()));
+        app.install_source = install;
+        app.check_for_updates_at_start();
+        app
+    })
+}
+
+#[test]
+fn the_check_at_start_speaks_only_for_a_newer_release() {
+    let mut h = quiet_harness(Ok(installable("v99.0.0")), None);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while h.query_by_label_contains("is available").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "the quiet check never announced the newer release");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // Without an install source the dialog offers only the page.
+    assert!(h.query_by_label("Install now").is_none());
+    h.get_by_label("Download");
+
+    // Up to date, or a failed check: nothing appears.
+    for answer in [Ok(installable(concat!("v", env!("CARGO_PKG_VERSION")))), Err("couldn't reach GitHub")] {
+        let mut h = quiet_harness(answer, None);
+        for _ in 0..40 {
+            h.run_steps(2);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(
+            h.query_by_label_contains("is up to date").is_none()
+                && h.query_by_label_contains("Couldn't check").is_none()
+                && h.query_by_label_contains("is available").is_none()
+        );
+    }
+}
+
+#[test]
+fn install_now_runs_the_installer_source_and_reports_it() {
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = calls.clone();
+    let install: InstallSource = Arc::new(move |r: &Release| {
+        assert!(r.installer.is_some());
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    });
+    let mut h = quiet_harness(Ok(installable("v99.0.0")), Some(install));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while h.query_by_label("Install now").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "the install button never appeared");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.get_by_label("Install now").click();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while h.query_by_label_contains("The installer is running").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "the installer's start was never reported");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_failed_installation_says_why_and_can_be_retried() {
+    let install: InstallSource =
+        Arc::new(|_: &Release| Err("the downloaded installer doesn't match its published checksum, so it was not run".into()));
+    let mut h = quiet_harness(Ok(installable("v99.0.0")), Some(install));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while h.query_by_label("Install now").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "the install button never appeared");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.get_by_label("Install now").click();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while h.query_by_label_contains("Couldn't install the update").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "the failure was never reported");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.get_by_label_contains("doesn't match its published checksum");
+    h.get_by_label("Install now");
 }

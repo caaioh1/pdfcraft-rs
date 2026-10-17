@@ -776,6 +776,10 @@
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	Запрашивает у GitHub последний релиз. Ничего не скачивается и не устанавливается автоматически.
 	Download	Скачать
 	Later	Позже
+	Install now	Установить сейчас
+	Downloading the update…	Загрузка обновления…
+	The installer is running. Save your work and close PdfCraft to finish the update.	Программа установки запущена. Сохраните работу и закройте PdfCraft, чтобы завершить обновление.
+	Couldn't install the update: {e}	Не удалось установить обновление: {e}
 	none	нет
 	Declared conformance: {shown}	Заявленное соответствие: {shown}
 	Output intent: {list}	Выходное намерение: {list}

@@ -738,6 +738,10 @@
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	En son sürüm için GitHub'ı sorgular. Hiçbir şey otomatik olarak indirilmez veya kurulmaz.
 	Download	İndir
 	Later	Daha sonra
+	Install now	Şimdi yükle
+	Downloading the update…	Güncelleme indiriliyor…
+	The installer is running. Save your work and close PdfCraft to finish the update.	Yükleyici çalışıyor. Güncellemeyi tamamlamak için çalışmanızı kaydedin ve PdfCraft'ı kapatın.
+	Couldn't install the update: {e}	Güncelleme yüklenemedi: {e}
 	none	yok
 	Declared conformance: {shown}	Bildirilen uyumluluk: {shown}
 	Output intent: {list}	Çıktı amacı: {list}

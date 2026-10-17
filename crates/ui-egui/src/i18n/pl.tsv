@@ -775,6 +775,10 @@
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	Sprawdza najnowsze wydanie na GitHubie. Nic nie jest pobierane ani instalowane automatycznie.
 	Download	Pobierz
 	Later	Później
+	Install now	Zainstaluj teraz
+	Downloading the update…	Pobieranie aktualizacji…
+	The installer is running. Save your work and close PdfCraft to finish the update.	Instalator jest uruchomiony. Zapisz swoją pracę i zamknij PdfCraft, aby ukończyć aktualizację.
+	Couldn't install the update: {e}	Nie udało się zainstalować aktualizacji: {e}
 	none	brak
 	Declared conformance: {shown}	Deklarowana zgodność: {shown}
 	Output intent: {list}	Profil wyjściowy: {list}

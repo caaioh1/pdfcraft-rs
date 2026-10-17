@@ -757,6 +757,10 @@ comment menu	Edit	సవరించు
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	తాజా విడుదల గురించి GitHubను అడుగుతుంది. ఏదీ ఆటోమేటిక్‌గా డౌన్‌లోడ్ లేదా ఇన్‌స్టాల్ చేయబడదు.
 	Download	డౌన్‌లోడ్ చేయి
 	Later	తర్వాత
+	Install now	ఇప్పుడే ఇన్‌స్టాల్ చేయండి
+	Downloading the update…	నవీకరణను డౌన్‌లోడ్ చేస్తోంది…
+	The installer is running. Save your work and close PdfCraft to finish the update.	ఇన్‌స్టాలర్ నడుస్తోంది. నవీకరణను పూర్తి చేయడానికి మీ పనిని సేవ్ చేసి PdfCraft ను మూసివేయండి.
+	Couldn't install the update: {e}	నవీకరణను ఇన్‌స్టాల్ చేయడం సాధ్యం కాలేదు: {e}
 	none	ఏదీ లేదు
 	Declared conformance: {shown}	ప్రకటించిన అనుగుణ్యత: {shown}
 	Output intent: {list}	అవుట్‌పుట్ ఇంటెంట్: {list}
