@@ -36,12 +36,12 @@ fn a_png_name_gets_a_png() {
     assert!(r.status.success(), "{}", String::from_utf8_lossy(&r.stderr));
     let bytes = std::fs::read(&out).unwrap();
     assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "not a PNG: {:?}", &bytes[..bytes.len().min(16)]);
-    // IHDR: the page is 612×792 pt, rendered at 36 dpi
+    // IHDR: the page is A4 (595.28×841.89 pt), rendered at 36 dpi
     assert_eq!(&bytes[12..16], b"IHDR");
-    assert_eq!((be32(&bytes[16..20]), be32(&bytes[20..24])), (306, 396));
+    assert_eq!((be32(&bytes[16..20]), be32(&bytes[20..24])), (298, 421));
     // the reported size matches the file
     let stderr = String::from_utf8_lossy(&r.stderr);
-    assert!(stderr.contains("306×396"), "{stderr}");
+    assert!(stderr.contains("298×421"), "{stderr}");
 }
 
 #[test]
@@ -62,9 +62,9 @@ fn a_pam_name_still_gets_the_netpbm_stream() {
     let out = tmp("pam", "p1.pam");
     assert!(render(&pdf, &out).status.success());
     let bytes = std::fs::read(&out).unwrap();
-    let header = b"P7\nWIDTH 306\nHEIGHT 396\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n";
+    let header = b"P7\nWIDTH 298\nHEIGHT 421\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n";
     assert!(bytes.starts_with(header), "{:?}", String::from_utf8_lossy(&bytes[..bytes.len().min(80)]));
-    assert_eq!(bytes.len(), header.len() + 306 * 396 * 4);
+    assert_eq!(bytes.len(), header.len() + 298 * 421 * 4);
 }
 
 #[test]

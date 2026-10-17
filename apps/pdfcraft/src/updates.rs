@@ -119,7 +119,9 @@ fn installer_in(release: &serde_json::Value) -> Option<Installer> {
     Some(Installer { file_name, msi_url, sums_url })
 }
 
-/// The checksum `sums` (the text of `SHA256SUMS.txt`) lists for `file`, lower-cased.
+/// The checksum `sums` (the text of `SHA256SUMS.txt`) lists for `file`, lower-cased. Only the
+/// Windows installer reads it, so elsewhere it exists for its tests alone.
+#[cfg(any(windows, test))]
 fn checksum_for(sums: &str, file: &str) -> Option<String> {
     sums.lines().find_map(|line| {
         let (hash, name) = line.split_once(char::is_whitespace)?;
