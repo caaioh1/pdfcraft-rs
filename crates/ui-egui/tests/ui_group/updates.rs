@@ -5,7 +5,7 @@ use std::sync::Arc;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use pdfcraft_ui_egui::PdfCraftApp;
-use pdfcraft_ui_egui::updates::{InstallSource, Installer, Release, UpdateSource, is_newer};
+use pdfcraft_ui_egui::updates::{InstallSource, Installer, Release, RestartSource, UpdateSource, is_newer};
 
 fn source(answer: Result<&str, &str>) -> UpdateSource {
     let answer = answer.map(str::to_string).map_err(str::to_string);
@@ -119,12 +119,21 @@ fn installable(version: &str) -> Release {
 }
 
 fn quiet_harness(answer: Result<Release, &'static str>, install: Option<InstallSource>) -> Harness<'static, PdfCraftApp> {
+    quiet_harness_with_restart(answer, install, None)
+}
+
+fn quiet_harness_with_restart(
+    answer: Result<Release, &'static str>,
+    install: Option<InstallSource>,
+    restart: Option<RestartSource>,
+) -> Harness<'static, PdfCraftApp> {
     Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_eframe(move |_cc| {
         let mut app = PdfCraftApp::new();
         app.set_option("language", "en").unwrap();
         let answer = answer.clone().map_err(str::to_string);
         app.update_source = Some(Arc::new(move || answer.clone()));
         app.install_source = install;
+        app.restart_source = restart.clone();
         app.check_for_updates_at_start();
         app
     })
@@ -176,7 +185,7 @@ fn install_now_runs_the_installer_source_and_reports_it() {
     }
     h.get_by_label("Install now").click();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
-    while h.query_by_label_contains("The installer is running").is_none() {
+    while h.query_by_label_contains("PdfCraft is updated").is_none() {
         h.run_steps(2);
         assert!(std::time::Instant::now() < deadline, "the installer's start was never reported");
         std::thread::sleep(std::time::Duration::from_millis(5));
@@ -204,4 +213,83 @@ fn a_failed_installation_says_why_and_can_be_retried() {
     }
     h.get_by_label_contains("doesn't match its published checksum");
     h.get_by_label("Install now");
+}
+
+/// Finding a newer release only announces it: nothing is downloaded or installed until the user
+/// presses Install now.
+#[test]
+fn a_newer_release_is_never_installed_without_a_click() {
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = calls.clone();
+    let install: InstallSource = Arc::new(move |_: &Release| {
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    });
+    let mut h = quiet_harness(Ok(installable("v99.0.0")), Some(install));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while h.query_by_label("Install now").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "the dialog never offered the installation");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // Keep the dialog on screen for a good while, with the pointer wherever it is.
+    for _ in 0..80 {
+        h.run_steps(2);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0, "the installer ran without a click");
+    h.get_by_label("Install now");
+}
+
+#[test]
+fn after_the_update_restart_now_starts_the_new_version_and_closes_this_one() {
+    let restarts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = restarts.clone();
+    let restart: RestartSource = Arc::new(move || {
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    });
+    let install: InstallSource = Arc::new(|_: &Release| Ok(()));
+    let mut h = quiet_harness_with_restart(Ok(installable("v99.0.0")), Some(install), Some(restart));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while h.query_by_label("Install now").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "the install button never appeared");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(h.query_by_label("Restart now").is_none(), "nothing to restart before the update is installed");
+    h.get_by_label("Install now").click();
+    while h.query_by_label("Restart now").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "Restart now never appeared after the update");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.get_by_label_contains("PdfCraft is updated");
+    assert!(h.query_by_label("Install now").is_none(), "an installed update is not offered again");
+    assert_eq!(restarts.load(std::sync::atomic::Ordering::SeqCst), 0, "nothing restarts without a click");
+    h.get_by_label("Restart now").click();
+    h.run_steps(3);
+    assert_eq!(restarts.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn a_restart_that_fails_says_so_and_leaves_the_app_open() {
+    let restart: RestartSource = Arc::new(|| Err("no helper".into()));
+    let install: InstallSource = Arc::new(|_: &Release| Ok(()));
+    let mut h = quiet_harness_with_restart(Ok(installable("v99.0.0")), Some(install), Some(restart));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while h.query_by_label("Install now").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "the install button never appeared");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.get_by_label("Install now").click();
+    while h.query_by_label("Restart now").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "Restart now never appeared");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.get_by_label("Restart now").click();
+    h.run_steps(3);
+    h.get_by_label_contains("couldn't restart (no helper)");
 }

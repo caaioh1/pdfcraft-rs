@@ -786,6 +786,8 @@
 	Download	ダウンロード
 	Later	後で
 	Install now	今すぐインストール
+	PdfCraft is updated. Restart to use the new version.	PdfCraft を更新しました。新しいバージョンを使うには再起動してください。
+	Restart now	今すぐ再起動
 	Downloading the update…	アップデートをダウンロードしています…
 	The installer is running. Save your work and close PdfCraft to finish the update.	インストーラーを実行しています。作業内容を保存し、PdfCraft を閉じてアップデートを完了してください。
 	Couldn't install the update: {e}	アップデートをインストールできませんでした: {e}

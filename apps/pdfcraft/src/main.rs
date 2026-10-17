@@ -392,6 +392,7 @@ fn app_creator<'a>(
         #[cfg(windows)]
         {
             app.install_source = Some(std::sync::Arc::new(updates::install_release));
+            app.restart_source = Some(std::sync::Arc::new(updates::restart_app));
         }
         // This fork looks for a newer release once at start, quietly (nothing shows unless there is
         // one); PDFCRAFT_NO_UPDATE_CHECK=1 turns that off.

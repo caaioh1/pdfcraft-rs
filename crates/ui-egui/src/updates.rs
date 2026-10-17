@@ -46,6 +46,10 @@ pub type UpdateSource = Arc<dyn Fn() -> Result<Release, String> + Send + Sync>;
 /// thread). It returns once the installer has started.
 pub type InstallSource = Arc<dyn Fn(&Release) -> Result<(), String> + Send + Sync>;
 
+/// Starts PdfCraft again once this one has exited, so the new version opens in its place. The
+/// app closes itself right after (asking about unsaved work as for any close).
+pub type RestartSource = Arc<dyn Fn() -> Result<(), String> + Send + Sync>;
+
 /// Whether release `latest` (a tag such as `v0.2.0`) is newer than version `current` (`0.1.1`).
 /// Pre-release and build suffixes are ignored; a version that doesn't parse is never newer.
 pub fn is_newer(latest: &str, current: &str) -> bool {
@@ -82,8 +86,8 @@ pub(crate) enum Install {
     Idle,
     #[cfg(not(target_arch = "wasm32"))]
     Running(std::sync::mpsc::Receiver<Result<(), String>>),
-    /// The installer was started; Windows takes it from here.
-    Started,
+    /// The installer finished: the new version is on disk and the running one is still the old.
+    Done,
     Failed(String),
 }
 
@@ -188,7 +192,7 @@ impl PdfCraftApp {
             }
             if let Install::Running(rx) = &self.updates.install {
                 self.updates.install = match rx.try_recv() {
-                    Ok(Ok(())) => Install::Started,
+                    Ok(Ok(())) => Install::Done,
                     Ok(Err(e)) => Install::Failed(e),
                     Err(std::sync::mpsc::TryRecvError::Empty) => return,
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => Install::Failed("the installation stopped unexpectedly".into()),
@@ -210,6 +214,7 @@ pub(crate) fn dialog(app: &mut PdfCraftApp, ctx: &egui::Context) {
     // The release to install, offered while an installer is available and none is running.
     let mut install: Option<Release> = None;
     let mut install_now = false;
+    let mut restart = false;
     let modal = crate::widgets::show_modal(ctx, "updates", |ui| {
         ui.set_width(420.0);
         ui.horizontal(|ui| {
@@ -249,9 +254,9 @@ pub(crate) fn dialog(app: &mut PdfCraftApp, ctx: &egui::Context) {
                             ui.label(tl!("Downloading the update…"));
                         });
                     }
-                    Install::Started => {
+                    Install::Done => {
                         ui.add_space(6.0);
-                        ui.label(tl!("The installer is running. Save your work and close PdfCraft to finish the update."));
+                        ui.label(tl!("PdfCraft is updated. Restart to use the new version."));
                     }
                     Install::Failed(e) => {
                         ui.add_space(6.0);
@@ -287,10 +292,14 @@ pub(crate) fn dialog(app: &mut PdfCraftApp, ctx: &egui::Context) {
         ui.add_space(12.0);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if let Some(url) = download.take() {
+                let updated = matches!(app.updates.install, Install::Done) && app.restart_source.is_some();
+                if updated {
+                    restart = widgets::pill_button(ui, tl!("Restart now"), true).clicked();
+                }
                 if install.is_some() {
                     install_now = widgets::pill_button(ui, tl!("Install now"), true).clicked();
                 }
-                let get = widgets::pill_button(ui, tl!("Download"), install.is_none()).clicked();
+                let get = widgets::pill_button(ui, tl!("Download"), install.is_none() && !updated).clicked();
                 let later = widgets::pill_button(ui, tl!("Later"), false).clicked();
                 // Install now keeps the dialog open to show the download's progress.
                 close = get || later;
@@ -306,6 +315,15 @@ pub(crate) fn dialog(app: &mut PdfCraftApp, ctx: &egui::Context) {
     }
     if install_now && let Some(release) = install {
         app.start_install(release);
+    }
+    if restart && let Some(source) = app.restart_source.clone() {
+        match source() {
+            Ok(()) => {
+                app.updates.open = false;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Err(e) => app.updates.install = Install::Failed(format!("couldn't restart ({e})")),
+        }
     }
     if close {
         app.updates.open = false;

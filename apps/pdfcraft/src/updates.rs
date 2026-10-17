@@ -98,6 +98,55 @@ fn parse(body: &str) -> Result<Release, String> {
     Ok(Release { version, url, installer: installer_in(&v) })
 }
 
+/// What Windows Installer's exit code means for the update: 0 is done, 3010 is done but asks for a
+/// restart of Windows (the new files are in place; the update takes effect on the next start).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn install_outcome(code: Option<i32>) -> Result<(), String> {
+    match code {
+        Some(0 | 3010) => Ok(()),
+        Some(1602) => Err("the installation was cancelled".into()),
+        Some(1618) => Err("another installation is already running; try again when it finishes".into()),
+        Some(c) => Err(format!("the installer stopped with code {c}")),
+        None => Err("the installer was stopped before it finished".into()),
+    }
+}
+
+/// The PowerShell command that starts `exe` once process `pid` has exited. It waits at most five
+/// minutes and starts nothing if the old process is still there (the user kept it open), so a
+/// cancelled close can't open a second window later.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn restart_command(pid: u32, exe: &str) -> String {
+    let exe = exe.replace('\'', "''");
+    format!(
+        "Wait-Process -Id {pid} -Timeout 300 -ErrorAction SilentlyContinue; if (-not (Get-Process -Id {pid} -ErrorAction SilentlyContinue)) {{ Start-Process -FilePath '{exe}' }}"
+    )
+}
+
+/// Starts PdfCraft again as soon as this process exits, so the version just installed opens in
+/// its place. The caller closes the window next.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn restart_app() -> Result<(), String> {
+    #[cfg(not(windows))]
+    {
+        Err("restarting after an update is only available on Windows".into())
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+
+        /// CREATE_NO_WINDOW: the helper shows no console.
+        const NO_WINDOW: u32 = 0x0800_0000;
+        let exe = std::env::current_exe().map_err(|e| format!("couldn't find this program ({e})"))?;
+        let script = restart_command(std::process::id(), &exe.to_string_lossy());
+        std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+            .creation_flags(NO_WINDOW)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("couldn't start the restart helper ({e})"))
+    }
+}
+
 /// A file name that is safe to put in a temporary folder: no separators, no leading dot.
 fn plain_name(name: &str) -> bool {
     !name.is_empty() && name.len() <= 128 && !name.starts_with('.') && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
@@ -199,13 +248,13 @@ pub fn install_release(release: &Release) -> Result<(), String> {
         }
         // `/passive` shows progress without questions; no properties, so an update keeps the
         // desktop shortcut and context-menu choices of the installed version (packaging/windows).
-        std::process::Command::new("msiexec")
+        let status = std::process::Command::new("msiexec")
             .arg("/i")
             .arg(&path)
             .args(["/passive", "/norestart"])
-            .spawn()
+            .status()
             .map_err(|e| format!("couldn't start the installer ({e})"))?;
-        Ok(())
+        install_outcome(status.code())
     }
 }
 
@@ -266,6 +315,28 @@ mod tests {
         let sneaky = "..\\\\evil-windows-x64.msi";
         let json = release_json(&[asset(sneaky, &format!("{base}/{sneaky}")), asset("SHA256SUMS.txt", &format!("{base}/SHA256SUMS.txt"))].join(","));
         assert!(parse(&json).unwrap().installer.is_none());
+    }
+
+    #[test]
+    fn installer_exit_codes_mean_done_cancelled_or_failed() {
+        assert_eq!(install_outcome(Some(0)), Ok(()));
+        assert_eq!(install_outcome(Some(3010)), Ok(()), "done, Windows asks for a restart");
+        assert!(install_outcome(Some(1602)).unwrap_err().contains("cancelled"));
+        assert!(install_outcome(Some(1618)).unwrap_err().contains("already running"));
+        assert!(install_outcome(Some(1603)).unwrap_err().contains("1603"));
+        assert!(install_outcome(None).is_err());
+    }
+
+    #[test]
+    fn the_restart_waits_for_this_process_and_quotes_the_path() {
+        let c = restart_command(4242, r"C:\Program Files\PdfCraft\pdfcraft.exe");
+        assert!(c.starts_with("Wait-Process -Id 4242 -Timeout 300"), "{c}");
+        assert!(c.contains(r"Start-Process -FilePath 'C:\Program Files\PdfCraft\pdfcraft.exe'"), "{c}");
+        // Starts nothing while the old process is still running.
+        assert!(c.contains("if (-not (Get-Process -Id 4242"), "{c}");
+        // A quote in the path can't end the string early.
+        let q = restart_command(1, r"C:\Users\O'Neil\pdfcraft.exe");
+        assert!(q.contains("O''Neil"), "{q}");
     }
 
     #[test]

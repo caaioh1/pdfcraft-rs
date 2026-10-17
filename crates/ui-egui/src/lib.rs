@@ -556,6 +556,8 @@ pub struct PdfCraftApp {
     pub update_source: Option<updates::UpdateSource>,
     /// How to download, verify and run a release's installer; `None` where that isn't possible.
     pub install_source: Option<updates::InstallSource>,
+    /// How to start PdfCraft again after an update was installed; `None` where that isn't possible.
+    pub restart_source: Option<updates::RestartSource>,
     pub(crate) updates: updates::Updates,
     /// Lists the Print dialog's printers in the background (the desktop app sets it; see
     /// [`PrinterSource`]).
@@ -927,6 +929,7 @@ impl PdfCraftApp {
             dialog: None,
             update_source: None,
             install_source: None,
+            restart_source: None,
             updates: updates::Updates::default(),
             printer_source: None,
             print_tasks: print_ui::PrintTasks::default(),

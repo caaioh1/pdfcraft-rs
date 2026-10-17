@@ -400,6 +400,8 @@
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	Αναζητά την τελευταία έκδοση στο GitHub. Δεν γίνεται αυτόματα λήψη ή εγκατάσταση.
 	Later	Αργότερα
 	Install now	Εγκατάσταση τώρα
+	PdfCraft is updated. Restart to use the new version.	Το PdfCraft ενημερώθηκε. Επανεκκινήστε για να χρησιμοποιήσετε τη νέα έκδοση.
+	Restart now	Επανεκκίνηση τώρα
 	Downloading the update…	Λήψη της ενημέρωσης…
 	The installer is running. Save your work and close PdfCraft to finish the update.	Το πρόγραμμα εγκατάστασης εκτελείται. Αποθηκεύστε την εργασία σας και κλείστε το PdfCraft για να ολοκληρωθεί η ενημέρωση.
 	Couldn't install the update: {e}	Δεν ήταν δυνατή η εγκατάσταση της ενημέρωσης: {e}

@@ -682,6 +682,8 @@ theme	Appearance	Giao diện
 	Larger pages	Trang lớn hơn
 	Later	Để sau
 	Install now	Cài đặt ngay
+	PdfCraft is updated. Restart to use the new version.	PdfCraft đã được cập nhật. Hãy khởi động lại để dùng phiên bản mới.
+	Restart now	Khởi động lại ngay
 	Downloading the update…	Đang tải bản cập nhật…
 	The installer is running. Save your work and close PdfCraft to finish the update.	Trình cài đặt đang chạy. Hãy lưu công việc và đóng PdfCraft để hoàn tất cập nhật.
 	Couldn't install the update: {e}	Không thể cài đặt bản cập nhật: {e}
