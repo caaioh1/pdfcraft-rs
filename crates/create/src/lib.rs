@@ -19,6 +19,12 @@ pub enum CreateError {
 /// US Letter in points.
 pub const LETTER: (f64, f64) = (612.0, 792.0);
 
+/// A4 in points (595.28 × 841.89, ISO 216).
+pub const A4: (f64, f64) = (595.28, 841.89);
+
+/// The page size of a new document when the caller names none.
+pub const DEFAULT_PAGE: (f64, f64) = A4;
+
 /// The largest page side PDF allows (ISO 32000-2 Annex C: 14 400 units).
 const MAX_SIDE: f64 = 14_400.0;
 

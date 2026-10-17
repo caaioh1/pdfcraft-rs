@@ -760,6 +760,10 @@
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	Fragt GitHub nach dem neuesten Release. Es wird nichts automatisch heruntergeladen oder installiert.
 	Download	Herunterladen
 	Later	Später
+	Install now	Jetzt installieren
+	Downloading the update…	Update wird heruntergeladen…
+	The installer is running. Save your work and close PdfCraft to finish the update.	Das Installationsprogramm läuft. Speichern Sie Ihre Arbeit und schließen Sie PdfCraft, um das Update abzuschließen.
+	Couldn't install the update: {e}	Das Update konnte nicht installiert werden: {e}
 	none	keine
 	Declared conformance: {shown}	Angegebene Konformität: {shown}
 	Output intent: {list}	Output Intent: {list}

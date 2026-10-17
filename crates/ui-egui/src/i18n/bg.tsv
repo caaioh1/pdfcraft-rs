@@ -457,6 +457,10 @@
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	Запитва GitHub за най-новото издание. Нищо не се изтегля и не се инсталира автоматично.
 	Download	Изтегли
 	Later	По-късно
+	Install now	Инсталирай сега
+	Downloading the update…	Изтегляне на актуализацията…
+	The installer is running. Save your work and close PdfCraft to finish the update.	Инсталаторът работи. Запазете работата си и затворете PdfCraft, за да завършите актуализацията.
+	Couldn't install the update: {e}	Актуализацията не може да се инсталира: {e}
 	none	няма
 	Declared conformance: {shown}	Декларирано съответствие: {shown}
 	Output intent: {list}	Изходно предназначение: {list}

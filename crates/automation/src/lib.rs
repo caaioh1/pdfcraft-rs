@@ -1308,7 +1308,8 @@ impl Automation {
         let (name, bytes) = match a.str("from")? {
             "blank" => {
                 let n = a.opt_int("pages")?.unwrap_or(1).clamp(1, 10_000) as usize;
-                let (w, h) = (a.opt_num("width")?.unwrap_or(612.0), a.opt_num("height")?.unwrap_or(792.0));
+                let (w, h) =
+                    (a.opt_num("width")?.unwrap_or(pdfcraft_engine::DEFAULT_PAGE.0), a.opt_num("height")?.unwrap_or(pdfcraft_engine::DEFAULT_PAGE.1));
                 ("Untitled.pdf".to_string(), self.session.create_blank(w, h, n).map_err(failed)?)
             }
             "images" => {
@@ -1492,9 +1493,9 @@ impl Automation {
     fn insert_blank(&mut self, a: &Args) -> Result<Value> {
         let doc = self.doc(a)?;
         let at = self.position(a, "at")?;
-        // Default to the size of the neighbouring page, as Acrobat does; Letter for empty files.
+        // Default to the size of the neighbouring page, as Acrobat does; A4 for empty files.
         let near = doc.info.pages.get(at.saturating_sub(1)).or(doc.info.pages.first());
-        let (w, h) = near.map(|p| (f64::from(p.width), f64::from(p.height))).unwrap_or((612.0, 792.0));
+        let (w, h) = near.map(|p| (f64::from(p.width), f64::from(p.height))).unwrap_or(pdfcraft_engine::DEFAULT_PAGE);
         let width = a.opt_num("width")?.unwrap_or(w);
         let height = a.opt_num("height")?.unwrap_or(h);
         if !(1.0..=14400.0).contains(&width) || !(1.0..=14400.0).contains(&height) {

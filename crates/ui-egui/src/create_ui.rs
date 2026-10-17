@@ -137,9 +137,9 @@ impl PdfCraftApp {
         self.open_created_bytes("Clipboard.pdf", created.map_err(|e| e.to_string()))
     }
 
-    /// Create ▸ Blank page: a new untitled US Letter document.
+    /// Create ▸ Blank page: a new untitled A4 document.
     pub(crate) fn create_blank(&mut self) {
-        let created = self.session.create_blank(612.0, 792.0, 1).map_err(|e| e.to_string());
+        let created = self.session.create_blank(pdfcraft_engine::DEFAULT_PAGE.0, pdfcraft_engine::DEFAULT_PAGE.1, 1).map_err(|e| e.to_string());
         if let Err(e) = self.open_created_bytes("Untitled.pdf", created) {
             self.notify_fmt("Couldn't create a PDF: {e}", &[("e", &e.to_string())]);
         }

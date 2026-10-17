@@ -744,3 +744,9 @@ fn imposed_pages_preserve_large_user_unit_matrices() {
         }
     }
 }
+
+#[test]
+fn a_new_print_job_starts_on_a4() {
+    assert_eq!(PAPERS[DEFAULT_PAPER].0, "A4");
+    assert_eq!(Settings::default().paper, PAPERS[DEFAULT_PAPER].1);
+}

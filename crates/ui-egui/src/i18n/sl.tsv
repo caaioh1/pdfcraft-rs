@@ -1004,6 +1004,10 @@
 	Last	Zadnja
 	Last commit	Zadnji commit
 	Later	Prekliči
+	Install now	Namesti zdaj
+	Downloading the update…	Prenašanje posodobitve …
+	The installer is running. Save your work and close PdfCraft to finish the update.	Namestitveni program teče. Shranite svoje delo in zaprite PdfCraft, da dokončate posodobitev.
+	Couldn't install the update: {e}	Posodobitve ni bilo mogoče namestiti: {e}
 	Later in tab order	Pozneje v vrstnem redu tabulatorja
 	Layers	Plasti
 	Layers Panel and Page	Razdelek in stran s plastmi

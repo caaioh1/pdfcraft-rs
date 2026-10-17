@@ -857,6 +857,10 @@ key	Space	Mezerník
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	Zjistí na GitHubu nejnovější vydání. Nic se automaticky nestahuje ani neinstaluje.
 	Download	Stáhnout
 	Later	Později
+	Install now	Nainstalovat nyní
+	Downloading the update…	Stahování aktualizace…
+	The installer is running. Save your work and close PdfCraft to finish the update.	Instalační program běží. Uložte svou práci a zavřete PdfCraft, aby se aktualizace dokončila.
+	Couldn't install the update: {e}	Aktualizaci se nepodařilo nainstalovat: {e}
 	none	žádná
 	Declared conformance: {shown}	Deklarovaná shoda: {shown}
 	Output intent: {list}	Výstupní záměr: {list}

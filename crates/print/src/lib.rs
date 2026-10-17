@@ -268,7 +268,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             pages: Vec::new(),
-            paper: PAPERS[0].1,
+            paper: PAPERS[DEFAULT_PAPER].1,
             orientation: Orientation::Auto,
             layout: Layout::default(),
             content: Content::default(),
@@ -301,6 +301,9 @@ pub const PAPERS: [(&str, (f64, f64)); 20] = [
     ("A0", (2383.94, 3370.39)),
     ("4 x 6 in label (101.6 x 152.4 mm)", (288.0, 432.0)),
 ];
+
+/// `PAPERS` index of the paper a new print job starts on (A4; a test keeps it honest).
+pub const DEFAULT_PAPER: usize = 4;
 
 /// `PAPERS` index of the 4 × 6 in shipping label.
 pub const LABEL_PAPER: usize = 19;

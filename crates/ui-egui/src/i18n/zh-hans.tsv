@@ -463,6 +463,10 @@
 	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	向 GitHub 查询最新版本。不会自动下载或安装任何内容。
 	Download	下载
 	Later	稍后
+	Install now	立即安装
+	Downloading the update…	正在下载更新…
+	The installer is running. Save your work and close PdfCraft to finish the update.	安装程序正在运行。请保存您的工作并关闭 PdfCraft 以完成更新。
+	Couldn't install the update: {e}	无法安装更新：{e}
 	none	无
 	Declared conformance: {shown}	声明的一致性：{shown}
 	Output intent: {list}	输出意图：{list}
