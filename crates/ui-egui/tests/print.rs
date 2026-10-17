@@ -245,7 +245,7 @@ fn print_dialog_shows_the_printer_driver_options() {
     h.get_by_label("Media");
     h.get_by_label("Paper tray");
     // The selected sheet's media is always sent, independently of changed driver properties.
-    let media = vec![("media".to_string(), "Letter".to_string())];
+    let media = vec![("media".to_string(), "A4".to_string())];
     assert_eq!(h.state().print_draft.job("form.pdf").options, [("InputSlot".to_string(), "Tray2".to_string()), media[0].clone()]);
     h.get_by_label("Reset to printer defaults").click();
     h.run_steps(2);
