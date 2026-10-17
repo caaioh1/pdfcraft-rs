@@ -5,7 +5,8 @@
 # (apps/pdfcraft/src/updates.rs) reads the latest release of this repository, downloads the
 # installer and refuses to run it unless its SHA-256 matches the checksum file.
 #
-# The tag is the version: it must be X.Y.Z, and larger than the version already installed, or
+# The tag is the version: X.Y.Z with the major.minor of Cargo.toml (0.8.1, 0.8.2, ...), and larger
+# than the version already installed, or
 # Windows Installer won't treat the MSI as an upgrade. The workflow stamps it into the build with
 # `cargo xtask version set`, so no commit is needed to bump a version.
 #
@@ -19,9 +20,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version for a test build, X.Y.Z (nothing is published)"
+        description: "Version for a test build, X.Y.Z with Cargo.toml's major.minor (empty: Cargo.toml's own). Nothing is published"
         type: string
-        default: "0.0.1"
+        default: ""
 
 permissions:
   contents: write
@@ -48,9 +49,15 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="$INPUT_VERSION"; fi
+          # The version Cargo.toml declares now. The workspace crates require `^<major>.<minor>.0`
+          # of each other, so a release must keep that major.minor (0.8.1, 0.8.2, ...).
+          current=$(sed -n '/^\[workspace.package\]/,/^\[/p' Cargo.toml | grep -m1 '^version' | sed 's/.*"\(.*\)".*/\1/')
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="${GITHUB_REF_NAME#v}"; else v="${INPUT_VERSION:-$current}"; fi
           if ! echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::the version must be X.Y.Z (got '$v')"; exit 1
+          fi
+          if [ "${v%.*}" != "${current%.*}" ]; then
+            echo "::error::version $v must keep the major.minor of Cargo.toml (${current%.*}.N), because the crates require ^${current%.*}.0 of each other"; exit 1
           fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
