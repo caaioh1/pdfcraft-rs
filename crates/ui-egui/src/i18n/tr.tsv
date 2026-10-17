@@ -743,7 +743,7 @@
 	Install now	Şimdi yükle
 	PdfCraft is updated. Restart to use the new version.	PdfCraft güncellendi. Yeni sürümü kullanmak için yeniden başlatın.
 	Restart now	Şimdi yeniden başlat
-	Downloading the update…	Güncelleme indiriliyor…
+	Downloading and installing the update…	Güncelleme indiriliyor ve yükleniyor…
 	The installer is running. Save your work and close PdfCraft to finish the update.	Yükleyici çalışıyor. Güncellemeyi tamamlamak için çalışmanızı kaydedin ve PdfCraft'ı kapatın.
 	Couldn't install the update: {e}	Güncelleme yüklenemedi: {e}
 	none	yok

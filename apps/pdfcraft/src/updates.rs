@@ -104,10 +104,47 @@ fn parse(body: &str) -> Result<Release, String> {
 fn install_outcome(code: Option<i32>) -> Result<(), String> {
     match code {
         Some(0 | 3010) => Ok(()),
-        Some(1602) => Err("the installation was cancelled".into()),
+        // 1602: cancelled in the installer; 1223: the permission prompt was refused.
+        Some(1602 | 1223) => Err("the installation was cancelled (permission was not given)".into()),
+        Some(1925) => Err("installing needs administrator permission".into()),
         Some(1618) => Err("another installation is already running; try again when it finishes".into()),
         Some(c) => Err(format!("the installer stopped with code {c}")),
         None => Err("the installer was stopped before it finished".into()),
+    }
+}
+
+/// The PowerShell command that runs the installer `msi` elevated and silent, and exits with the
+/// installer's own exit code (1223 when the permission prompt is refused). `/qn` shows no
+/// window; the quotes around the path are for msiexec's command line.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn elevated_install_command(msi: &str) -> String {
+    let msi = msi.replace('\'', "''");
+    format!(
+        "try {{ $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', '\"{msi}\"', '/qn', '/norestart') -Verb RunAs -Wait -PassThru -ErrorAction Stop; exit $p.ExitCode }} catch {{ exit 1223 }}"
+    )
+}
+
+/// Deletes the folders earlier updates left in the temporary folder (all `pdfcraft-update-<pid>`
+/// but `keep`). Best effort: a folder in use is simply left alone.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn clear_old_downloads(keep: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ours = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("pdfcraft-update-"));
+        if ours && path != keep && path.is_dir() {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+}
+
+/// Removes a folder when dropped, whether the update succeeded, failed or returned early.
+#[cfg_attr(not(windows), allow(dead_code))]
+struct RemoveOnDrop(std::path::PathBuf);
+
+impl Drop for RemoveOnDrop {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
     }
 }
 
@@ -209,8 +246,12 @@ pub fn install_release(release: &Release) -> Result<(), String> {
     #[cfg(windows)]
     {
         use std::io::{Read, Write};
+        use std::os::windows::process::CommandExt;
 
         use sha2::{Digest, Sha256};
+
+        /// CREATE_NO_WINDOW: the helper shows no console.
+        const NO_WINDOW: u32 = 0x0800_0000;
 
         let installer = release.installer.as_ref().ok_or("this release has no installer for Windows")?;
         let agent = agent(Duration::from_secs(900))?;
@@ -223,7 +264,10 @@ pub fn install_release(release: &Release) -> Result<(), String> {
         let expected = checksum_for(&sums, &installer.file_name).ok_or("the release doesn't list a checksum for its installer")?;
 
         let dir = std::env::temp_dir().join(format!("pdfcraft-update-{}", std::process::id()));
+        clear_old_downloads(&dir);
         std::fs::create_dir_all(&dir).map_err(|e| format!("couldn't prepare a download folder ({e})"))?;
+        // The installer is not needed once it has run (or failed): don't leave 40 MB behind.
+        let _cleanup = RemoveOnDrop(dir.clone());
         let path = dir.join(&installer.file_name);
         let mut response = get(&agent, &installer.msi_url)?;
         let mut reader = response.body_mut().with_config().limit(MAX_INSTALLER).reader();
@@ -246,15 +290,27 @@ pub fn install_release(release: &Release) -> Result<(), String> {
             let _ = std::fs::remove_file(&path);
             return Err("the downloaded installer doesn't match its published checksum, so it was not run".into());
         }
-        // `/passive` shows progress without questions; no properties, so an update keeps the
-        // desktop shortcut and context-menu choices of the installed version (packaging/windows).
-        let status = std::process::Command::new("msiexec")
-            .arg("/i")
-            .arg(&path)
-            .args(["/passive", "/norestart"])
-            .status()
-            .map_err(|e| format!("couldn't start the installer ({e})"))?;
-        install_outcome(status.code())
+        // No properties, so an update keeps the desktop shortcut and context-menu choices of the
+        // installed version (packaging/windows). Windows asks for permission once (PdfCraft is
+        // installed for every user); the installer itself then runs without a window, and this
+        // app's own dialog shows that it is working.
+        let elevated = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &elevated_install_command(&path.to_string_lossy())])
+            .creation_flags(NO_WINDOW)
+            .status();
+        match elevated {
+            Ok(status) => install_outcome(status.code()),
+            // No PowerShell to ask with: let Windows Installer ask and show its own progress.
+            Err(_) => {
+                let status = std::process::Command::new("msiexec")
+                    .arg("/i")
+                    .arg(&path)
+                    .args(["/passive", "/norestart"])
+                    .status()
+                    .map_err(|e| format!("couldn't start the installer ({e})"))?;
+                install_outcome(status.code())
+            }
+        }
     }
 }
 
@@ -325,6 +381,43 @@ mod tests {
         assert!(install_outcome(Some(1618)).unwrap_err().contains("already running"));
         assert!(install_outcome(Some(1603)).unwrap_err().contains("1603"));
         assert!(install_outcome(None).is_err());
+    }
+
+    #[test]
+    fn the_install_runs_elevated_and_silent_with_the_path_quoted() {
+        let c = elevated_install_command(r"C:\Users\Ana Maria\AppData\Local\Temp\pdfcraft-update-1\pdfcraft-0.9.0-windows-x64.msi");
+        assert!(c.contains("-Verb RunAs"), "{c}");
+        assert!(c.contains("'/qn'") && c.contains("'/norestart'"), "{c}");
+        assert!(c.contains("-Wait -PassThru"), "{c}");
+        // msiexec gets the path in double quotes, so a folder with a space stays one argument.
+        assert!(c.contains(r#"'"C:\Users\Ana Maria\AppData"#), "{c}");
+        assert!(c.contains("exit $p.ExitCode") && c.contains("exit 1223"), "{c}");
+        // An apostrophe in the user name can't end the PowerShell string early.
+        let q = elevated_install_command(r"C:\Users\O'Neil\x.msi");
+        assert!(q.contains("O''Neil"), "{q}");
+    }
+
+    #[test]
+    fn a_refused_permission_prompt_counts_as_cancelled() {
+        assert!(install_outcome(Some(1223)).unwrap_err().contains("cancelled"));
+        assert!(install_outcome(Some(1925)).unwrap_err().contains("administrator"));
+    }
+
+    #[test]
+    fn only_the_updaters_own_folders_are_cleared() {
+        let base = std::env::temp_dir().join(format!("pdfcraft-clear-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        // A folder that is not the updater's must survive, whatever the temp folder holds.
+        let other = base.join("keep-me");
+        std::fs::create_dir_all(&other).unwrap();
+        let ours = std::env::temp_dir().join(format!("pdfcraft-update-test-{}", std::process::id()));
+        std::fs::create_dir_all(&ours).unwrap();
+        std::fs::write(ours.join("x.msi"), b"old").unwrap();
+        clear_old_downloads(&base.join("not-a-folder"));
+        assert!(!ours.exists(), "an old update folder is removed");
+        assert!(other.exists(), "an unrelated folder stays");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

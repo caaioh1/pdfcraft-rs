@@ -254,7 +254,7 @@ pub(crate) fn dialog(app: &mut PdfCraftApp, ctx: &egui::Context) {
                         ui.add_space(6.0);
                         ui.horizontal(|ui| {
                             ui.spinner();
-                            ui.label(tl!("Downloading the update…"));
+                            ui.label(tl!("Downloading and installing the update…"));
                         });
                     }
                     Install::Done | Install::Restarting => {

@@ -862,7 +862,7 @@ key	Space	Mezerník
 	Install now	Nainstalovat nyní
 	PdfCraft is updated. Restart to use the new version.	PdfCraft byl aktualizován. Restartujte, abyste používali novou verzi.
 	Restart now	Restartovat nyní
-	Downloading the update…	Stahování aktualizace…
+	Downloading and installing the update…	Stahování a instalace aktualizace…
 	The installer is running. Save your work and close PdfCraft to finish the update.	Instalační program běží. Uložte svou práci a zavřete PdfCraft, aby se aktualizace dokončila.
 	Couldn't install the update: {e}	Aktualizaci se nepodařilo nainstalovat: {e}
 	none	žádná
