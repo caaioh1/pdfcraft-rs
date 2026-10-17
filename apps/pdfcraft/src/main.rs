@@ -387,7 +387,12 @@ fn app_creator<'a>(
             app.motion.source = Some(motion::source());
         }
         app.update_source = Some(std::sync::Arc::new(updates::latest_release));
-        app.install_source = Some(std::sync::Arc::new(updates::install_release));
+        // Install now exists only where the installer can be run for the user: on the other systems
+        // the update notice opens the releases page, where the download is.
+        #[cfg(windows)]
+        {
+            app.install_source = Some(std::sync::Arc::new(updates::install_release));
+        }
         // This fork looks for a newer release once at start, quietly (nothing shows unless there is
         // one); PDFCRAFT_NO_UPDATE_CHECK=1 turns that off.
         if std::env::var_os("PDFCRAFT_NO_UPDATE_CHECK").is_none_or(|v| v.is_empty() || v == "0") {

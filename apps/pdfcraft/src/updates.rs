@@ -148,6 +148,7 @@ fn get(agent: &ureq::Agent, url: &str) -> Result<ureq::http::Response<ureq::Body
 /// Downloads the release's installer, checks it against the published checksum and starts it. The
 /// installer runs on its own (Windows asks for permission, since PdfCraft is installed for every
 /// user); this returns as soon as it has started. Nothing is run unless the checksum matches.
+#[cfg_attr(not(windows), allow(dead_code))]
 pub fn install_release(release: &Release) -> Result<(), String> {
     #[cfg(not(windows))]
     {
