@@ -88,6 +88,9 @@ pub(crate) enum Install {
     Running(std::sync::mpsc::Receiver<Result<(), String>>),
     /// The installer finished: the new version is on disk and the running one is still the old.
     Done,
+    /// Restart now was pressed once: the helper that opens the new version is waiting for this
+    /// window to close. Pressing it again would start a second helper, so it is not offered.
+    Restarting,
     Failed(String),
 }
 
@@ -254,7 +257,7 @@ pub(crate) fn dialog(app: &mut PdfCraftApp, ctx: &egui::Context) {
                             ui.label(tl!("Downloading the update…"));
                         });
                     }
-                    Install::Done => {
+                    Install::Done | Install::Restarting => {
                         ui.add_space(6.0);
                         ui.label(tl!("PdfCraft is updated. Restart to use the new version."));
                     }
@@ -292,9 +295,13 @@ pub(crate) fn dialog(app: &mut PdfCraftApp, ctx: &egui::Context) {
         ui.add_space(12.0);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if let Some(url) = download.take() {
-                let updated = matches!(app.updates.install, Install::Done) && app.restart_source.is_some();
+                let updated = matches!(app.updates.install, Install::Done | Install::Restarting) && app.restart_source.is_some();
                 if updated {
-                    restart = widgets::pill_button(ui, tl!("Restart now"), true).clicked();
+                    // One press only: a second would start a second helper and open a second window.
+                    let ready = matches!(app.updates.install, Install::Done);
+                    ui.add_enabled_ui(ready, |ui| {
+                        restart = widgets::pill_button(ui, tl!("Restart now"), true).clicked();
+                    });
                 }
                 if install.is_some() {
                     install_now = widgets::pill_button(ui, tl!("Install now"), true).clicked();
@@ -316,10 +323,15 @@ pub(crate) fn dialog(app: &mut PdfCraftApp, ctx: &egui::Context) {
     if install_now && let Some(release) = install {
         app.start_install(release);
     }
-    if restart && let Some(source) = app.restart_source.clone() {
+    if restart
+        && matches!(app.updates.install, Install::Done)
+        && let Some(source) = app.restart_source.clone()
+    {
         match source() {
             Ok(()) => {
-                app.updates.open = false;
+                // The dialog stays up until the window goes; if closing is held back (unsaved
+                // work), the usual save prompt asks first and the helper keeps waiting.
+                app.updates.install = Install::Restarting;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
             Err(e) => app.updates.install = Install::Failed(format!("couldn't restart ({e})")),

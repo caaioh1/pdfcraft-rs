@@ -293,3 +293,36 @@ fn a_restart_that_fails_says_so_and_leaves_the_app_open() {
     h.run_steps(3);
     h.get_by_label_contains("couldn't restart (no helper)");
 }
+
+#[test]
+fn restart_now_can_only_be_pressed_once() {
+    let restarts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = restarts.clone();
+    let restart: RestartSource = Arc::new(move || {
+        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    });
+    let install: InstallSource = Arc::new(|_: &Release| Ok(()));
+    let mut h = quiet_harness_with_restart(Ok(installable("v99.0.0")), Some(install), Some(restart));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while h.query_by_label("Install now").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "the install button never appeared");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.get_by_label("Install now").click();
+    while h.query_by_label("Restart now").is_none() {
+        h.run_steps(2);
+        assert!(std::time::Instant::now() < deadline, "Restart now never appeared");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // Press it as often as an impatient user would: only the first press starts a helper.
+    for _ in 0..4 {
+        if let Some(button) = h.query_by_label("Restart now") {
+            button.click();
+        }
+        h.run_steps(3);
+    }
+    assert_eq!(restarts.load(std::sync::atomic::Ordering::SeqCst), 1, "a second press started a second helper");
+    h.get_by_label_contains("PdfCraft is updated");
+}
