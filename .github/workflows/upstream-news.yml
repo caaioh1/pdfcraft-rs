@@ -1,0 +1,80 @@
+# Once a week, checks whether the original project (storytold/pdfcraft) has changes this fork
+# doesn't have yet, and says so in an issue: "Novidades no projeto original". The issue is opened
+# or updated when there is news and closed when the fork is up to date, so GitHub's e-mail
+# notification is the weekly alert.
+#
+# It only tells; it never merges. Joining the original into this fork can conflict and its code
+# reaches real computers, so a person (or Claude) does it on a branch, runs the tests and
+# publishes on purpose. Ask: "sincronize com o original".
+#
+# Needs Issues turned on in the fork (Settings > General > Features).
+name: Upstream news
+
+on:
+  schedule:
+    - cron: "23 9 * * 1" # Mondays
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  news:
+    name: News from the original project
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TITLE: "Novidades no projeto original"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Compare with the original
+        id: cmp
+        shell: bash
+        run: |
+          git remote add upstream https://github.com/storytold/pdfcraft.git
+          git fetch --quiet upstream main
+          behind=$(git rev-list --count HEAD..upstream/main)
+          theirs=$(git show upstream/main:Cargo.toml | sed -n '/^\[workspace.package\]/,/^\[/p' | grep -m1 '^version' | sed 's/.*"\(.*\)".*/\1/')
+          ours=$(sed -n '/^\[workspace.package\]/,/^\[/p' Cargo.toml | grep -m1 '^version' | sed 's/.*"\(.*\)".*/\1/')
+          {
+            echo "behind=$behind"
+            echo "theirs=$theirs"
+            echo "ours=$ours"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "O projeto original tem **$behind** mudança(s) que este fork ainda não tem."
+            echo
+            echo "- versão do original: **$theirs**"
+            echo "- versão deste fork: **$ours**"
+            echo
+            echo "Últimas mudanças deles:"
+            echo
+            git log --no-merges --format='- %s' -n 15 HEAD..upstream/main
+            echo
+            echo "Para trazer isso para o fork com segurança, peça ao Claude: **\"sincronize com o original\"**. Ele junta numa branch, resolve conflitos, roda todos os testes e só publica depois da sua autorização."
+            echo
+            echo "_Atualizado automaticamente em $(date -u +%Y-%m-%d)._"
+          } > body.md
+
+      - name: Open, update or close the issue
+        shell: bash
+        env:
+          BEHIND: ${{ steps.cmp.outputs.behind }}
+        run: |
+          number=$(gh issue list --state open --search "$TITLE in:title" --json number,title --jq "map(select(.title == \"$TITLE\"))[0].number // empty")
+          if [ "$BEHIND" -gt 0 ]; then
+            if [ -n "$number" ]; then
+              gh issue edit "$number" --body-file body.md
+              gh issue comment "$number" --body "Ainda há $BEHIND mudança(s) no original. Lista atualizada acima."
+            else
+              gh issue create --title "$TITLE" --body-file body.md
+            fi
+          elif [ -n "$number" ]; then
+            gh issue close "$number" --comment "O fork está em dia com o original."
+          else
+            echo "Em dia com o original; nada a avisar."
+          fi
