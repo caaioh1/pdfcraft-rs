@@ -110,6 +110,11 @@ lto = "thin"
 codegen-units = 1
 
 # Vendored, patched third-party crates (see vendor/README.md). Each patch is meant to go upstream.
+# winprint draws PDF pages for the Windows spooler; the patch asks the PDF renderer for print
+# resolution instead of 96 dpi (vendor/winprint/src/printer/win_pdf.rs, `PdfCraft patch`).
+[patch."https://github.com/storytold/winprint.rs"]
+winprint = { path = "vendor/winprint" }
+
 [patch.crates-io]
 hayro-interpret = { path = "vendor/hayro-interpret" }
 hayro = { path = "vendor/hayro" }
