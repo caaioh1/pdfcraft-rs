@@ -149,7 +149,7 @@ jobs:
           test -n "$(ls ./*.msi 2>/dev/null)" || { echo "::error::no MSI was built"; exit 1; }
           test -n "$(ls ./*.dmg 2>/dev/null)" || { echo "::error::no DMG was built"; exit 1; }
           # "<hash>  <name>", one per file; the app's updater reads exactly this format.
-          sha256sum -- *.msi *.dmg *.zip > SHA256SUMS.txt
+          sha256sum ./*.msi ./*.dmg ./*.zip | sed 's#\( [ *]\)\./#\1#' > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Publish the release
@@ -163,4 +163,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "PdfCraft $VERSION" \
             --notes "Installers for this fork. Windows: run the .msi, which updates an installed PdfCraft in place and keeps its settings (unsigned: SmartScreen may warn). Mac: open the .dmg and drag PdfCraft to Applications (not notarized: the first time, right-click the app and choose Open). Checksums are in SHA256SUMS.txt." \
-            *.msi *.dmg *.zip SHA256SUMS.txt
+            ./*.msi ./*.dmg ./*.zip SHA256SUMS.txt
