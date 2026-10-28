@@ -39,6 +39,46 @@ pub(crate) fn paint_hover(ui: &egui::Ui, xf: &PageXform, info: &DocInfo, page: u
     }
 }
 
+/// Edit text & images: the boxes page `page` draws. A right-click inside one opens the box menu
+/// rather than a picture's, and the box under the pointer is outlined. Whether the box owns the
+/// pointer this frame (the picture and text underneath then wait).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn page_input(
+    ui: &egui::Ui,
+    resp: &egui::Response,
+    xf: &PageXform,
+    info: &DocInfo,
+    page: usize,
+    doc: &pdfcraft_engine::Document,
+    active: bool,
+    pointer: Option<Pos2>,
+    view: &mut DocView,
+) -> bool {
+    let boxes = if active {
+        let generation = doc.edit_generation();
+        match view.edit_boxes.get(&page) {
+            Some((g, b)) if *g == generation => b.clone(),
+            _ => {
+                let b = doc.drawn_boxes(page).unwrap_or_default();
+                view.edit_boxes.insert(page, (generation, b.clone()));
+                b
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    if !boxes.is_empty() {
+        if resp.secondary_clicked()
+            && let Some(p) = pointer.filter(|p| xf.rect.contains(*p))
+            && let Some(index) = box_at(xf, info, page, &boxes, p)
+        {
+            view.box_context = Some((page, index));
+        }
+        paint_hover(ui, xf, info, page, &boxes, pointer);
+    }
+    view.box_context.is_some_and(|(p, _)| p == page) && (resp.secondary_clicked() || resp.context_menu_opened())
+}
+
 /// The menu of box `index` on `page`.
 pub(crate) fn menu(ui: &mut egui::Ui, page: usize, index: usize, can_modify: bool, view: &mut DocView) {
     if ui.add_enabled(can_modify, egui::Button::new(tl!("Delete box"))).clicked() {
