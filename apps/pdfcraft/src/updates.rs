@@ -116,12 +116,28 @@ fn install_outcome(code: Option<i32>) -> Result<(), String> {
 /// The PowerShell command that runs the installer `msi` elevated and silent, and exits with the
 /// installer's own exit code (1223 when the permission prompt is refused). `/qn` shows no
 /// window; the quotes around the path are for msiexec's command line.
+///
+/// `all_users`: the running copy is installed for every user. Since 0.14 the installer starts a new
+/// installation for the current user only and refuses to update a copy of the other kind (it
+/// stops with 1603), so an update of an every-user copy says `ALLUSERS=1`.
 #[cfg_attr(not(windows), allow(dead_code))]
-fn elevated_install_command(msi: &str) -> String {
+fn elevated_install_command(msi: &str, all_users: bool) -> String {
     let msi = msi.replace('\'', "''");
+    let scope = if all_users { ", 'ALLUSERS=1'" } else { "" };
     format!(
-        "try {{ $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', '\"{msi}\"', '/qn', '/norestart') -Verb RunAs -Wait -PassThru -ErrorAction Stop; exit $p.ExitCode }} catch {{ exit 1223 }}"
+        "try {{ $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', '\"{msi}\"', '/qn', '/norestart'{scope}) -Verb RunAs -Wait -PassThru -ErrorAction Stop; exit $p.ExitCode }} catch {{ exit 1223 }}"
     )
+}
+
+/// Whether `exe` lies under a Program Files folder, where the installer puts a copy installed for
+/// every user (a per-user copy lives under `%LOCALAPPDATA%\Programs`).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn installed_for_all_users(exe: &std::path::Path) -> bool {
+    ["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .filter(|v| !v.is_empty())
+        .any(|root| exe.starts_with(std::path::PathBuf::from(root)))
 }
 
 /// Deletes the folders earlier updates left in the temporary folder (all `pdfcraft-update-<pid>`
@@ -294,8 +310,16 @@ pub fn install_release(release: &Release) -> Result<(), String> {
         // installed version (packaging/windows). Windows asks for permission once (PdfCraft is
         // installed for every user); the installer itself then runs without a window, and this
         // app's own dialog shows that it is working.
+        let all_users = std::env::current_exe().is_ok_and(|exe| installed_for_all_users(&exe));
         let elevated = std::process::Command::new("powershell.exe")
-            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &elevated_install_command(&path.to_string_lossy())])
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                &elevated_install_command(&path.to_string_lossy(), all_users),
+            ])
             .creation_flags(NO_WINDOW)
             .status();
         match elevated {
@@ -306,6 +330,7 @@ pub fn install_release(release: &Release) -> Result<(), String> {
                     .arg("/i")
                     .arg(&path)
                     .args(["/passive", "/norestart"])
+                    .args(all_users.then_some("ALLUSERS=1"))
                     .status()
                     .map_err(|e| format!("couldn't start the installer ({e})"))?;
                 install_outcome(status.code())
@@ -385,7 +410,7 @@ mod tests {
 
     #[test]
     fn the_install_runs_elevated_and_silent_with_the_path_quoted() {
-        let c = elevated_install_command(r"C:\Users\Ana Maria\AppData\Local\Temp\pdfcraft-update-1\pdfcraft-0.9.0-windows-x64.msi");
+        let c = elevated_install_command(r"C:\Users\Ana Maria\AppData\Local\Temp\pdfcraft-update-1\pdfcraft-0.9.0-windows-x64.msi", false);
         assert!(c.contains("-Verb RunAs"), "{c}");
         assert!(c.contains("'/qn'") && c.contains("'/norestart'"), "{c}");
         assert!(c.contains("-Wait -PassThru"), "{c}");
@@ -393,8 +418,22 @@ mod tests {
         assert!(c.contains(r#"'"C:\Users\Ana Maria\AppData"#), "{c}");
         assert!(c.contains("exit $p.ExitCode") && c.contains("exit 1223"), "{c}");
         // An apostrophe in the user name can't end the PowerShell string early.
-        let q = elevated_install_command(r"C:\Users\O'Neil\x.msi");
+        let q = elevated_install_command(r"C:\Users\O'Neil\x.msi", false);
         assert!(q.contains("O''Neil"), "{q}");
+        assert!(!c.contains("ALLUSERS"), "{c}");
+    }
+
+    /// 0.14's installer refuses to update an every-user copy unless told so (it stopped with 1603).
+    #[test]
+    fn an_update_of_an_every_user_copy_says_all_users() {
+        let c = elevated_install_command(r"C:\x.msi", true);
+        assert!(c.contains("'ALLUSERS=1'"), "{c}");
+        let per_user = std::path::Path::new(r"C:\Users\Ana\AppData\Local\Programs\ArtCraft\PdfCraft\pdfcraft.exe");
+        assert!(!installed_for_all_users(per_user));
+        #[cfg(windows)]
+        if let Some(root) = std::env::var_os("ProgramFiles").filter(|v| !v.is_empty()) {
+            assert!(installed_for_all_users(&std::path::PathBuf::from(root).join("ArtCraft").join("PdfCraft").join("pdfcraft.exe")));
+        }
     }
 
     #[test]
