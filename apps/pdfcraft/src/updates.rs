@@ -46,13 +46,67 @@ pub fn latest_release() -> Result<Release, String> {
     let status = response.status().as_u16();
     if status == 403 {
         let reset = response.headers().get("x-ratelimit-reset").and_then(|v| v.to_str().ok());
-        return Err(rate_limited(reset, now_unix()));
+        // The anonymous API quota is used up: the release pages cost none of it.
+        return latest_without_api(&agent).map_err(|_| rate_limited(reset, now_unix()));
     }
     if !(200..300).contains(&status) {
         return Err(format!("couldn't reach GitHub (http status: {status})"));
     }
     let body = response.body_mut().with_config().limit(1 << 20).read_to_string().map_err(|e| format!("unreadable answer ({e})"))?;
     parse(&body)
+}
+
+/// This repository's "latest release" page, which answers with a redirect to the newest tag's page.
+/// It costs nothing against GitHub's anonymous API quota.
+const LATEST_PAGE: &str = "https://github.com/caaioh1/pdfcraft-rs/releases/latest";
+
+/// The newest release, found without the API: the redirect of [`LATEST_PAGE`] names the tag and the
+/// release's `SHA256SUMS.txt` lists the installer. Used when the API's anonymous quota ran out.
+fn latest_without_api(agent: &ureq::Agent) -> Result<Release, String> {
+    let ua = concat!("PdfCraft/", env!("CARGO_PKG_VERSION"));
+    let redirect = agent
+        .get(LATEST_PAGE)
+        .header("User-Agent", ua)
+        .config()
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .max_redirects_will_error(false)
+        .build()
+        .call()
+        .map_err(|e| format!("couldn't reach GitHub ({e})"))?;
+    let location = redirect.headers().get("location").and_then(|v| v.to_str().ok()).ok_or("no release found")?;
+    let tag = tag_from_location(location).ok_or("no release found")?;
+    let mut sums = agent
+        .get(&format!("{DOWNLOADS}{tag}/{CHECKSUMS}"))
+        .header("User-Agent", ua)
+        .config()
+        .http_status_as_error(false)
+        .build()
+        .call()
+        .map_err(|e| format!("couldn't reach GitHub ({e})"))?;
+    if !(200..300).contains(&sums.status().as_u16()) {
+        return Err(format!("couldn't reach GitHub (http status: {})", sums.status().as_u16()));
+    }
+    let text = sums.body_mut().with_config().limit(1 << 20).read_to_string().map_err(|e| format!("unreadable answer ({e})"))?;
+    Ok(Release { version: tag.clone(), url: format!("{RELEASES_PAGE}/tag/{tag}"), installer: installer_from_sums(&text, &tag) })
+}
+
+/// The tag a `Location` header of [`LATEST_PAGE`] points at (`…/releases/tag/<tag>`), when it stays on
+/// this repository and the tag is a plain name.
+fn tag_from_location(location: &str) -> Option<String> {
+    let rest = location.strip_prefix(RELEASES_PAGE).or_else(|| location.strip_prefix("/caaioh1/pdfcraft-rs/releases"))?;
+    let tag = rest.strip_prefix("/tag/")?;
+    (!tag.is_empty() && tag.len() <= 64 && tag.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))).then(|| tag.to_string())
+}
+
+/// The Windows installer `sums` (the text of `SHA256SUMS.txt`) lists for release `tag`, served from
+/// this repository's release downloads.
+fn installer_from_sums(sums: &str, tag: &str) -> Option<Installer> {
+    let file_name = sums.lines().find_map(|line| {
+        let name = line.split_once(char::is_whitespace)?.1.trim().trim_start_matches('*');
+        (plain_name(name) && name.ends_with(INSTALLER_SUFFIX)).then(|| name.to_string())
+    })?;
+    Some(Installer { msi_url: format!("{DOWNLOADS}{tag}/{file_name}"), sums_url: format!("{DOWNLOADS}{tag}/{CHECKSUMS}"), file_name })
 }
 
 /// The certificate authorities the operating system trusts.
@@ -436,6 +490,40 @@ mod tests {
         }
     }
 
+    /// With GitHub's API quota used up, the release pages still name the newest tag.
+    #[test]
+    fn the_latest_page_redirect_names_the_tag() {
+        let page = "https://github.com/caaioh1/pdfcraft-rs/releases/tag/v0.15.1";
+        assert_eq!(tag_from_location(page).as_deref(), Some("v0.15.1"));
+        assert_eq!(tag_from_location("/caaioh1/pdfcraft-rs/releases/tag/v0.15.1").as_deref(), Some("v0.15.1"));
+        // Another repository, another kind of page, an odd tag or no tag: nothing to offer.
+        for bad in [
+            "https://github.com/storytold/pdfcraft/releases/tag/v9.9.9",
+            "https://github.com/caaioh1/pdfcraft-rs/releases/tag/",
+            "https://github.com/caaioh1/pdfcraft-rs/releases/tag/v1?x=1",
+            "https://github.com/caaioh1/pdfcraft-rs/releases/tag/../../x",
+            "https://github.com/caaioh1/pdfcraft-rs/issues/1",
+            "https://evil.example/caaioh1/pdfcraft-rs/releases/tag/v1",
+            "",
+        ] {
+            assert_eq!(tag_from_location(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_installer_comes_from_the_checksum_list_of_the_tag() {
+        let sums = "aa  pdfcraft-0.15.1-macos-universal.dmg\n\
+                    bb  pdfcraft-0.15.1-windows-x64-portable.zip\n\
+                    cc  pdfcraft-0.15.1-windows-x64.msi\n";
+        let i = installer_from_sums(sums, "v0.15.1").unwrap();
+        assert_eq!(i.file_name, "pdfcraft-0.15.1-windows-x64.msi");
+        assert_eq!(i.msi_url, "https://github.com/caaioh1/pdfcraft-rs/releases/download/v0.15.1/pdfcraft-0.15.1-windows-x64.msi");
+        assert_eq!(i.sums_url, "https://github.com/caaioh1/pdfcraft-rs/releases/download/v0.15.1/SHA256SUMS.txt");
+        // No Windows installer listed, or a name with a path in it: none is offered.
+        assert_eq!(installer_from_sums("aa  pdfcraft-0.15.1-macos-universal.dmg\n", "v0.15.1"), None);
+        assert_eq!(installer_from_sums("aa  ../evil-windows-x64.msi\n", "v0.15.1"), None);
+    }
+
     #[test]
     fn a_refused_permission_prompt_counts_as_cancelled() {
         assert!(install_outcome(Some(1223)).unwrap_err().contains("cancelled"));
@@ -510,5 +598,16 @@ mod tests {
         let r = latest_release().unwrap();
         assert!(pdfcraft_ui_egui::updates::is_newer(&r.version, "0.0.0"), "{r:?}");
         assert!(r.url.starts_with(RELEASES_PAGE), "{r:?}");
+    }
+
+    /// Live: the release pages answer without the API (what runs when its anonymous quota is used up).
+    #[test]
+    #[ignore = "needs network access"]
+    fn github_pages_answer_without_the_api() {
+        let r = latest_without_api(&agent(Duration::from_secs(10)).unwrap()).unwrap();
+        assert!(pdfcraft_ui_egui::updates::is_newer(&r.version, "0.0.0"), "{r:?}");
+        assert!(r.url.starts_with(RELEASES_PAGE), "{r:?}");
+        let i = r.installer.expect("the release lists a Windows installer");
+        assert!(i.msi_url.starts_with(DOWNLOADS) && i.msi_url.ends_with(INSTALLER_SUFFIX), "{i:?}");
     }
 }
