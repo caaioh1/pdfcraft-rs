@@ -21,6 +21,7 @@ use crate::{
 mod editing;
 mod files;
 mod save;
+mod spooler;
 mod view;
 
 #[derive(Default)]

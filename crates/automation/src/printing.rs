@@ -203,7 +203,10 @@ impl Automation {
         let settings = print::Settings { pages, paper, orientation, layout, content, raster, crops: Vec::new() };
         let sizes: Vec<(f64, f64)> = self.doc(a)?.info.pages.iter().map(|p| (p.width as f64, p.height as f64)).collect();
         let sheets = print::layout(&sizes, &settings).map_err(|e| bad(e.to_string()))?.len();
-        let bytes = self.session.print_pdf(id, &settings).map_err(failed)?;
+        // A job for the spooler may need its pages drawn as pictures; a saved file never does.
+        let bytes =
+            if a.opt_str("printer")?.is_some() { self.session.print_pdf_for_spooler(id, &settings) } else { self.session.print_pdf(id, &settings) }
+                .map_err(failed)?;
         let mut out = json!({ "sheets": sheets, "pages": settings.pages.len(), "bytes": bytes.len() });
         match (a.opt_str("path")?, a.opt_str("printer")?) {
             (Some(p), None) => {

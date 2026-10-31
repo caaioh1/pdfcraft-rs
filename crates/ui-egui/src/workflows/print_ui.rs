@@ -403,7 +403,13 @@ impl PdfCraftApp {
             }
         };
         let name = doc.name.clone();
-        let bytes = match self.session.print_pdf(id, &settings) {
+        // A job for a printer may need its pages drawn as pictures; a saved file never does.
+        let printed = if self.print_draft.printer.is_some() {
+            self.session.print_pdf_for_spooler(id, &settings)
+        } else {
+            self.session.print_pdf(id, &settings)
+        };
+        let bytes = match printed {
             Ok(b) => b,
             Err(e) => {
                 self.notify_error(e);
