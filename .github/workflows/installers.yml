@@ -132,7 +132,10 @@ jobs:
 
   publish:
     name: Publish the release
-    if: github.ref_type == 'tag'
+    # The Mac runners are sometimes unavailable for hours (GitHub capacity); the Windows build is
+    # what the app updates from, so it is published without waiting for the DMG, which is left out
+    # of that release when the Mac job did not finish.
+    if: ${{ !cancelled() && github.ref_type == 'tag' && needs.windows.result == 'success' }}
     needs: [version, windows, macos]
     runs-on: ubuntu-latest
     steps:
@@ -147,9 +150,9 @@ jobs:
         run: |
           ls -l
           test -n "$(ls ./*.msi 2>/dev/null)" || { echo "::error::no MSI was built"; exit 1; }
-          test -n "$(ls ./*.dmg 2>/dev/null)" || { echo "::error::no DMG was built"; exit 1; }
+          test -n "$(ls ./*.dmg 2>/dev/null)" || echo "::warning::no DMG was built (the Mac job did not finish): publishing without it"
           # "<hash>  <name>", one per file; the app's updater reads exactly this format.
-          sha256sum ./*.msi ./*.dmg ./*.zip | sed 's#\( [ *]\)\./#\1#' > SHA256SUMS.txt
+          sha256sum $(ls ./*.msi ./*.dmg ./*.zip 2>/dev/null) | sed 's#\( [ *]\)\./#\1#' > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Publish the release
@@ -163,4 +166,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "PdfCraft $VERSION" \
             --notes "Installers for this fork. Windows: run the .msi, which updates an installed PdfCraft in place and keeps its settings (unsigned: SmartScreen may warn). Mac: open the .dmg and drag PdfCraft to Applications (not notarized: the first time, right-click the app and choose Open). Checksums are in SHA256SUMS.txt." \
-            ./*.msi ./*.dmg ./*.zip SHA256SUMS.txt
+            $(ls ./*.msi ./*.dmg ./*.zip 2>/dev/null) SHA256SUMS.txt
