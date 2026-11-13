@@ -16,3 +16,4 @@ craft-i18n.rev text eol=lf
 *.ico binary
 *.png binary
 *.brotli binary
+graphify-out/graph.json merge=graphify
