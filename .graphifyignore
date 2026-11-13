@@ -1,0 +1,16 @@
+# ruido: dependencias vendorizadas, testes, build/infra
+vendor/winit/
+vendor/egui-wgpu/
+vendor/winprint/
+**/tests/
+**/tests.rs
+**/benches/
+**/examples/
+fuzz-out/
+xtask/
+.github/
+packaging/
+docs/research/
+docs/egui-037-migration-plan.md
+assets/
+licenses/
