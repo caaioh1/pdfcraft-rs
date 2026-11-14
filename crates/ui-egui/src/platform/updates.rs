@@ -344,3 +344,13 @@ pub(crate) fn dialog(app: &mut PdfCraftApp, ctx: &egui::Context) {
         }
     }
 }
+
+impl Updates {
+    /// Our updater has no startup prompt over the window: only the Updates dialog.
+    pub(crate) fn prompt_open(&self) -> bool {
+        false
+    }
+
+    /// Our installer is started from the dialog, so nothing waits for the exit.
+    pub(crate) fn exiting(&mut self) {}
+}

@@ -22,7 +22,7 @@ impl Session {
     /// renderer cannot draw them (a page with a Type 3 font on Windows).
     pub fn print_pdf_for_spooler(&self, id: DocId, settings: &print::Settings) -> Result<Vec<u8>, EditError> {
         if cfg!(windows) && settings.raster.is_none() && self.pages_use_type3(id, &settings.pages) {
-            let raster = print::Raster { dpi: TYPE3_FALLBACK_DPI, grayscale: false };
+            let raster = print::Raster { dpi: TYPE3_FALLBACK_DPI, grayscale: false, colour: None };
             return self.print_pdf(id, &print::Settings { raster: Some(raster), ..settings.clone() });
         }
         self.print_pdf(id, settings)

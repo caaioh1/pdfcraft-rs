@@ -11,7 +11,7 @@
 //! boxes.
 
 use pdfcraft_content::{Matrix, Op, Pieces};
-use pdfcraft_cos::{Document, Object};
+use pdfcraft_cos::Document;
 
 use crate::EditError;
 
@@ -83,12 +83,12 @@ pub fn drawn_boxes(doc: &Document, page: usize) -> Result<Vec<DrawnBox>, EditErr
 }
 
 /// Joined content of `page` with its streams, refused when it is unreadable or too large.
-/// A page's content streams (object, decoded bytes).
-type Streams = Vec<(Object, Vec<u8>)>;
+/// A page's content streams.
+type Streams = Vec<crate::text::ContentStream>;
 
 fn page_pieces(doc: &Document, page: usize) -> Result<(Streams, Pieces), EditError> {
     let streams = crate::objects::checked_streams(doc, page)?;
-    let pieces = Pieces::join(&streams.iter().map(|(_, bytes)| bytes.as_slice()).collect::<Vec<_>>());
+    let pieces = Pieces::join(&streams.iter().map(|s| s.data.as_slice()).collect::<Vec<_>>());
     Ok((streams, pieces))
 }
 
@@ -325,7 +325,7 @@ pub fn delete_drawn_box(doc: &mut Document, page: usize, index: usize, with_text
     let remove: std::collections::BTreeSet<usize> = target.ops.iter().copied().collect();
     let new = crate::text::splice(&pieces, &ops, |i| (Vec::new(), !remove.contains(&i)));
     let mut work = doc.clone();
-    let contents = crate::text::rewritten_contents(&mut work, &streams, new);
+    let contents = crate::text::rewritten_contents(&mut work, &streams, new)?;
     let p = pdfcraft_model::pages(&work).into_iter().nth(page).ok_or(EditError::NoSuchPage(page))?;
     work.update_dict(p.obj, |d| {
         d.set(b"Contents".to_vec(), contents);
@@ -357,7 +357,7 @@ pub fn delete_drawn_box(doc: &mut Document, page: usize, index: usize, with_text
 mod tests {
     use std::sync::Arc;
 
-    use pdfcraft_cos::{SaveOptions, write_incremental};
+    use pdfcraft_cos::{Object, SaveOptions, write_incremental};
 
     use super::*;
 
