@@ -2,8 +2,10 @@
 //!
 //! - **XFDF** (ISO 19444-1, Acrobat's "Export all to data file" / "Import comments", and form
 //!   data): comments with their geometry, colours, flags, authors, dates, replies, pop-ups,
-//!   ink, quadrilaterals, line ends and callouts; field values, nested by name.
-//! - **FDF** (ISO 32000-2 §12.7.8): fields and comments in PDF syntax.
+//!   ink, quadrilaterals, line ends, callouts, formatting (rich text, default style, border
+//!   style and dashes, rotation, justification, fringe, line leaders) and a stamp's appearance;
+//!   field values, nested by name.
+//! - **FDF** (ISO 32000-2 §12.7.8): fields and comments in PDF syntax, with their appearances.
 //! - Form data as **XML**, **CSV** and **tab-delimited text** (Acrobat's Export data formats).
 //!
 //! Import merges: a comment whose name (`/NM`) already exists on its page replaces it; field
@@ -18,6 +20,7 @@ use std::io::Write as _;
 use pdfcraft_cos::{Dict, Document, ObjRef, Object, PdfString};
 use pdfcraft_forms::{FieldKind, FieldValue};
 
+mod appearance;
 mod common;
 mod fdf;
 mod xfdf;
@@ -36,6 +39,8 @@ use xfdf::{apply_values, import_xfdf};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_format;
 
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum DataError {
@@ -85,6 +90,9 @@ pub struct Report {
     pub fields: usize,
     /// Field values the form refused (format, validation, unknown options).
     pub rejected: Vec<String>,
+    /// What the import left out of a comment it did import, each as "name: why" (an appearance
+    /// it could not read: the comment is drawn from its other entries instead).
+    pub skipped: Vec<String>,
 }
 
 /// Form data as XML, CSV or tab-delimited text (Acrobat's Export data formats).
@@ -115,7 +123,13 @@ pub fn export_data(doc: &Document, format: Format) -> String {
             // A formula-like cell gets a leading `'`, as in `merge_csv`; import takes it off again.
             let q = |s: &str| {
                 let s = if csv_guarded(s) { format!("'{s}") } else { s.to_string() };
-                if s.contains([',', '"', '\n', '\r', '\t']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s }
+                if s.contains('\t') {
+                    format!("\"{}\"", s.replace('"', "\"\""))
+                } else {
+                    let mut out = String::new();
+                    craft_csv::push_field(&mut out, &s, ',');
+                    out
+                }
             };
             format!(
                 "{}\n{}\n",
@@ -194,7 +208,13 @@ pub fn merge_csv(files: &[Vec<(String, Vec<String>)>]) -> String {
     let literal = |s: &str| if runs_as_formula(s) { format!("'{s}") } else { s.to_string() };
     let q = |s: &str| {
         let s = literal(s);
-        if s.contains([',', '"', '\n', '\r', '\t']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s }
+        if s.contains('\t') {
+            format!("\"{}\"", s.replace('"', "\"\""))
+        } else {
+            let mut out = String::new();
+            craft_csv::push_field(&mut out, &s, ',');
+            out
+        }
     };
     let mut out = columns.iter().map(|c| q(c)).collect::<Vec<_>>().join(",");
     out.push('\n');
@@ -330,8 +350,15 @@ fn tab_delimited(t: &str) -> Result<Vec<(String, Vec<String>)>, DataError> {
 }
 
 /// Import comments and/or field values from XFDF, FDF, XML, CSV or tab-delimited text
-/// (detected from the content).
+/// (detected from the content). All or nothing: on an error `doc` is left as it was.
 pub fn import(doc: &mut Document, bytes: &[u8]) -> Result<Report, DataError> {
+    let mut work = doc.clone();
+    let report = import_into(&mut work, bytes)?;
+    *doc = work;
+    Ok(report)
+}
+
+fn import_into(doc: &mut Document, bytes: &[u8]) -> Result<Report, DataError> {
     let report = if bytes.starts_with(b"%FDF") {
         import_fdf(doc, bytes)?
     } else {
