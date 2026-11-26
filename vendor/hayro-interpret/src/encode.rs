@@ -177,7 +177,11 @@ impl ShadingPattern {
             transfer_function: self.transfer_function.clone(),
             // A `/Background` is painted wherever the triangles aren't (pattern fills), so such
             // a mesh has no extent to confine it to.
-            extent: if self.shading.background.is_some() { None } else { extent },
+            extent: if self.shading.background.is_some() {
+                None
+            } else {
+                extent
+            },
         }
     }
 }

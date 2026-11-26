@@ -205,6 +205,8 @@ impl CffFontBlob {
 pub(crate) struct OpenTypeFontBlob {
     yoke: Arc<OpenTypeFontYoke>,
     cff_blob: Option<CffFontBlob>,
+    // Craft patch (flatten): the face index in a collection, for `OutlineFontData::index`.
+    index: u32,
 }
 
 impl Debug for OpenTypeFontBlob {
@@ -313,11 +315,17 @@ impl OpenTypeFontBlob {
         Some(Self {
             yoke: Arc::new(font_ref_yoke),
             cff_blob,
+            index,
         })
     }
 
     pub(crate) fn font_data(&self) -> FontData {
         self.yoke.backing_cart().clone()
+    }
+
+    /// Craft patch (flatten): the face index the blob was read with.
+    pub(crate) fn index(&self) -> u32 {
+        self.index
     }
 
     pub(crate) fn font_ref(&self) -> &FontRef<'_> {
@@ -536,3 +544,4 @@ mod tests {
         assert_eq!(shared.glyph_index_by_name("Alpha"), Some(GlyphId::new(1)));
     }
 }
+

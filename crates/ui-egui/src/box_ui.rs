@@ -3,11 +3,13 @@
 //! own paragraph and picture handling is unchanged: a right-click that lands inside a box opens
 //! this menu instead of the picture's, and nothing else about selecting or typing differs.
 
+use craft::ui::contract::{Props as _, Show as _};
+use craft::ui::menu::MenuItem;
 use egui::{Color32, CornerRadius, Pos2, Rect, Stroke};
 use pdfcraft_engine::{DrawnBox, Edit};
 use pdfcraft_render::DocInfo;
 
-use crate::canvas::{DocView, PageXform};
+use crate::canvas::{PageGeometry, PageSession, PageXform};
 
 const ACCENT: Color32 = Color32::from_rgb(0x14, 0x73, 0xE6);
 
@@ -21,72 +23,63 @@ fn screen_boxes(xf: &PageXform, info: &DocInfo, page: usize, boxes: &[DrawnBox])
 
 /// The innermost box under `p`: the smallest one that contains it, so a highlight inside a
 /// shaded note is the highlight and the rest of the note is the note.
-pub(crate) fn box_at(xf: &PageXform, info: &DocInfo, page: usize, boxes: &[DrawnBox], p: Pos2) -> Option<usize> {
+fn box_at(xf: &PageXform, info: &DocInfo, page: usize, boxes: &[DrawnBox], p: Pos2) -> Option<(usize, Rect)> {
     screen_boxes(xf, info, page, boxes)
         .into_iter()
         .filter(|(_, r)| r.expand(1.0).contains(p))
         .min_by(|(_, a), (_, b)| (a.width() * a.height()).total_cmp(&(b.width() * b.height())))
-        .map(|(i, _)| i)
 }
 
-/// A faint outline around the box the pointer is over, so a right-click knows what it will take.
-pub(crate) fn paint_hover(ui: &egui::Ui, xf: &PageXform, info: &DocInfo, page: usize, boxes: &[DrawnBox], hover: Option<Pos2>) {
-    let Some(p) = hover.filter(|p| xf.rect.contains(*p)) else { return };
-    if let Some(i) = box_at(xf, info, page, boxes, p)
-        && let Some((_, r)) = screen_boxes(xf, info, page, boxes).into_iter().find(|(j, _)| *j == i)
-    {
+/// The boxes `page` draws, read once per document generation.
+fn page_boxes(session: &mut PageSession, doc: &pdfcraft_engine::Document, page: usize) -> Vec<DrawnBox> {
+    let generation = doc.edit_generation();
+    match session.edit_boxes.get(&page) {
+        Some((g, b)) if *g == generation => b.clone(),
+        _ => {
+            let b = doc.drawn_boxes(page).unwrap_or_default();
+            session.edit_boxes.insert(page, (generation, b.clone()));
+            b
+        }
+    }
+}
+
+/// A faint outline around the box the pointer is over on `page`, so a right-click knows what it
+/// will take.
+pub(crate) fn paint_hover(
+    ui: &egui::Ui,
+    session: &mut PageSession,
+    doc: &pdfcraft_engine::Document,
+    info: &DocInfo,
+    page: usize,
+    geo: PageGeometry<'_>,
+) {
+    let Some(xf) = session.page_xform(page, geo) else { return };
+    let Some(p) = ui.input(|i| i.pointer.hover_pos()).filter(|p| xf.rect.contains(*p)) else { return };
+    let boxes = page_boxes(session, doc, page);
+    if let Some((_, r)) = box_at(&xf, info, page, &boxes, p) {
         ui.painter().rect_stroke(r, CornerRadius::same(1), Stroke::new(1.0, ACCENT.gamma_multiply(0.55)), egui::StrokeKind::Outside);
     }
 }
 
-/// Edit text & images: the boxes page `page` draws. `right` is where a right-click on the page
-/// landed that a box may take (the page router has already left comments, links and fields
-/// theirs): inside a box it opens the box menu, and unselects the picture so the menu is the box's.
-/// The box under the pointer is outlined.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn page_input(
-    ui: &egui::Ui,
-    xf: &PageXform,
-    info: &DocInfo,
-    page: usize,
-    doc: &pdfcraft_engine::Document,
-    active: bool,
-    pointer: Option<Pos2>,
-    right: Option<Pos2>,
-    view: &mut DocView,
-) {
-    if !active {
-        return;
+/// A right-click at `at` on `page` (one the page router left to the page: not on a comment, link
+/// or field): inside a box it opens the box menu, and unselects the picture so the menu is the box's.
+pub(crate) fn right_click(session: &mut PageSession, doc: &pdfcraft_engine::Document, info: &DocInfo, page: usize, geo: PageGeometry<'_>, at: Pos2) {
+    let Some(xf) = session.page_xform(page, geo) else { return };
+    let boxes = page_boxes(session, doc, page);
+    if let Some((index, _)) = box_at(&xf, info, page, &boxes, at) {
+        session.box_context = Some((page, index));
+        crate::edit_text_ui::picture_context(page, None, session);
     }
-    let generation = doc.edit_generation();
-    let boxes = match view.edit_boxes.get(&page) {
-        Some((g, b)) if *g == generation => b.clone(),
-        _ => {
-            let b = doc.drawn_boxes(page).unwrap_or_default();
-            view.edit_boxes.insert(page, (generation, b.clone()));
-            b
-        }
-    };
-    if boxes.is_empty() {
-        return;
-    }
-    if let Some(index) = right.and_then(|p| box_at(xf, info, page, &boxes, p)) {
-        view.box_context = Some((page, index));
-        crate::edit_text_ui::picture_context(page, None, view);
-    }
-    paint_hover(ui, xf, info, page, &boxes, pointer);
 }
 
 /// The menu of box `index` on `page`.
-pub(crate) fn menu(ui: &mut egui::Ui, page: usize, index: usize, can_modify: bool, view: &mut DocView) {
-    if ui.add_enabled(can_modify, egui::Button::new(tl!("Delete box"))).clicked() {
-        view.pending_edit = Some(Edit::DeleteDrawnBox { page, index, with_text: false });
-        view.box_context = None;
-        ui.close();
+pub(crate) fn menu(ui: &mut egui::Ui, page: usize, index: usize, can_modify: bool, session: &mut PageSession) {
+    if MenuItem::new(tl!("Delete box").to_string()).enabled(can_modify).show(ui).ran {
+        session.pending_edit = Some(Edit::DeleteDrawnBox { page, index, with_text: false });
+        session.box_context = None;
     }
-    if ui.add_enabled(can_modify, egui::Button::new(tl!("Delete box and its text"))).clicked() {
-        view.pending_edit = Some(Edit::DeleteDrawnBox { page, index, with_text: true });
-        view.box_context = None;
-        ui.close();
+    if MenuItem::new(tl!("Delete box and its text").to_string()).enabled(can_modify).show(ui).ran {
+        session.pending_edit = Some(Edit::DeleteDrawnBox { page, index, with_text: true });
+        session.box_context = None;
     }
 }

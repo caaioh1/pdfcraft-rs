@@ -83,7 +83,17 @@ pub(crate) fn decode_content<'a>(stream: &Stream<'a>) -> Option<DecodedContent<'
         warn!("page content budget exceeded");
         return None;
     }
-    let data = stream.decoded_within(left).ok()?;
+    let filtered = !stream.filters().is_empty();
+    let limit = if filtered { left.min(stream.decode_limits().max_decoded_stream()) } else { left };
+    let Ok(data) = stream.decoded_within(limit) else {
+        CONTENT_TRUNCATED.with(|truncated| truncated.set(true));
+        return None;
+    };
+    // The whole-stream decoders do not expose completion. Conservatively report a
+    // filtered form, pattern or Type 3 procedure reaching its effective budget.
+    if filtered && data.len() >= limit {
+        CONTENT_TRUNCATED.with(|truncated| truncated.set(true));
+    }
     let held = match &data {
         Cow::Owned(v) => v.len(),
         Cow::Borrowed(_) => 0,
@@ -276,6 +286,7 @@ fn state_bytes(state: &State<'_>) -> usize {
                 .saturating_mul(size_of::<f32>()),
         )
         .saturating_add(state.clips.len().saturating_mul(size_of::<ClipType>()))
+        .saturating_add(state.text_state.clip_paths.elements().len().saturating_mul(size_of::<PathEl>()))
 }
 
 impl<'a> Context<'a> {
@@ -662,7 +673,7 @@ impl<'a> Context<'a> {
         // PdfCraft patch (90): tell the caller a Type 3 font lacks the /Widths it requires,
         // so the spacing taken from its glyph procedures can be reported.
         if resolved.as_ref().is_some_and(Font::type3_widths_missing) {
-            (self.settings.warning_sink)(InterpreterWarning::Type3WidthsMissing);
+            (self.settings.extended_warning_sink)(crate::ExtendedWarning::Type3WidthsMissing);
         }
 
         if let Some(resolved) = resolved {
