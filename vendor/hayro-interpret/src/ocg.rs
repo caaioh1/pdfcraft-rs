@@ -109,7 +109,10 @@ impl OcgState {
     pub(crate) fn begin_ocmd(&mut self, ocmd: &Dict<'_>) {
         // PdfCraft patch (40): a visibility expression takes precedence over /OCGs and /P
         // (ISO 32000-2 §8.11.2.2); a malformed one is ignored and they decide instead.
-        if let Some(visible) = ocmd.get::<Array<'_>>(VE).and_then(|ve| self.visibility_expression(&ve, 0)) {
+        if let Some(visible) = ocmd
+            .get::<Array<'_>>(VE)
+            .and_then(|ve| self.visibility_expression(&ve, 0))
+        {
             let visible = self.is_visible() && visible;
             self.visibility_stack.push(visible);
             return;

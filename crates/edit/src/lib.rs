@@ -82,6 +82,7 @@ pub use added::{
 };
 
 mod apply;
+mod artifact_watermark;
 mod marks;
 mod place;
 
@@ -100,5 +101,9 @@ pub use place::{add_type3_fonts, stamp, stamp_with_fonts, undrawable_message};
 mod find_replace_rows_tests;
 #[cfg(test)]
 mod marked_isolation_tests;
+#[cfg(test)]
+mod paragraph_spacing_break_tests;
+#[cfg(test)]
+mod paragraph_spacing_tests;
 #[cfg(test)]
 mod tests;

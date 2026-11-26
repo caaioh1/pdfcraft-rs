@@ -67,3 +67,55 @@ fn radial_luminosity_mask_matches_per_pixel_shading_when_scaled_or_tiled() {
         }
     }
 }
+
+/// A 100 × 100 pt page filled by a function-based shading over the unit square (Matrix 100), whose
+/// colour comes from the calculator function `code` (inputs x y, outputs r g b).
+fn function_shading_page(code: &str) -> Vec<u8> {
+    let content = "/Sh0 sh";
+    format!(
+        "%PDF-1.7
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << /Shading << /Sh0 << /ShadingType 1 /ColorSpace /DeviceRGB /Domain [0 1 0 1] /Matrix [100 0 0 100 0 0] /Function 5 0 R >> >> >> >> endobj
+4 0 obj << /Length {} >> stream
+{content}
+endstream endobj
+5 0 obj << /FunctionType 4 /Domain [0 1 0 1] /Range [0 1 0 1 0 1] /Length {} >> stream
+{code}
+endstream endobj
+trailer << /Root 1 0 R >>
+%%EOF",
+        content.len(),
+        code.len()
+    )
+    .into_bytes()
+}
+
+/// The red and green of the pixel at (`x`, `y`) of a 100 × 100 render, y down.
+fn red_green(page: &RenderedPage, x: u32, y: u32) -> (u8, u8) {
+    let offset = usize::try_from((y * page.width + x) * 4).unwrap();
+    (page.rgba[offset], page.rgba[offset + 1])
+}
+
+/// Chrome's print-to-PDF gradients ignore one input; the renderer then evaluates the function once
+/// per value of the other. That must paint what evaluating it per pixel does: the colour follows
+/// x alone, y alone, or both.
+#[test]
+fn function_shading_that_ignores_one_input_is_still_painted_by_the_other() {
+    let request = RenderRequest { scale: 1.0, ..Default::default() };
+    // Inputs are x then y; `pop` drops y, `exch pop` drops x.
+    let by_x = render_mask(function_shading_page("{ pop dup 0 }"), request);
+    let by_y = render_mask(function_shading_page("{ exch pop dup 0 }"), request);
+    let by_both = render_mask(function_shading_page("{ 0 }"), request);
+
+    for (a, b) in [(10_u32, 90_u32), (50, 50), (90, 10)] {
+        let (r, g) = red_green(&by_x, a, b);
+        assert!(r.abs_diff((a * 255 / 100) as u8) <= 6 && r == g, "x only, ({a}, {b}): red {r}, green {g}");
+        // The page's y axis points up, so the row `b` from the top is y = 1 - b / 100.
+        let (r, g) = red_green(&by_y, a, b);
+        assert!(r.abs_diff(((100 - b) * 255 / 100) as u8) <= 6 && r == g, "y only, ({a}, {b}): red {r}, green {g}");
+        let (r, g) = red_green(&by_both, a, b);
+        assert!(r.abs_diff((a * 255 / 100) as u8) <= 6, "x and y, red at ({a}, {b}): {r}");
+        assert!(g.abs_diff(((100 - b) * 255 / 100) as u8) <= 6, "x and y, green at ({a}, {b}): {g}");
+    }
+}

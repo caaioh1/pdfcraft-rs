@@ -45,6 +45,8 @@ pub type CMapResolverFn =
     Arc<dyn Fn(hayro_cmap::CMapName<'_>) -> Option<&'static [u8]> + Send + Sync>;
 /// A callback function for resolving warnings during interpretation.
 pub type WarningSinkFn = Arc<dyn Fn(InterpreterWarning) + Send + Sync>;
+/// A callback function for extended PdfCraft warnings during interpretation.
+pub type ExtendedWarningSinkFn = Arc<dyn Fn(ExtendedWarning) + Send + Sync>;
 
 #[derive(Clone)]
 /// Settings that should be applied during the interpretation process.
@@ -101,6 +103,9 @@ pub struct InterpreterSettings {
     /// In certain cases, `hayro` will emit a warning in case an issue was encountered while interpreting
     /// the PDF file. Providing a callback allows you to catch those warnings and handle them, if desired.
     pub warning_sink: WarningSinkFn,
+    /// Optional callback for extended PdfCraft warnings (`ColorFallback`, `MalformedIndexedImage`,
+    /// `Type3WidthsMissing`) kept separate from [`InterpreterWarning`] for backward compatibility.
+    pub extended_warning_sink: ExtendedWarningSinkFn,
     /// Whether annotations should be rendered as well.
     ///
     /// Note that this feature is currently not fully implemented yet, so some
@@ -136,6 +141,15 @@ pub struct InterpreterSettings {
     /// costs a decode and a resample each for pixels nobody can see. Never set it for a final
     /// render (tiles, whole pages, print, export).
     pub preview: bool,
+    /// PdfCraft patch (35): draw one ink's separation instead of the composite page (see
+    /// [`Plate`](crate::color::Plate)). Soft masks still draw in colour: a mask's luminosity
+    /// comes from its group's colours, not from the page's plate (a DeviceCMYK luminosity
+    /// mask's from its own process plates, see `SoftMask::plate`). Patch 36: the plate's
+    /// `simulation` converts process colour to an output intent's CMYK.
+    pub plate: Option<crate::color::Plate>,
+    /// PdfCraft patch (35): told about each spot ink a paint uses (colours, images, shadings
+    /// and uncoloured patterns), whether or not `plate` is set.
+    pub ink_sink: Option<crate::color::InkSinkFn>,
     /// PdfCraft patch (73): the steps of JBIG2 decoding a page's images may take between them
     /// ([`hayro_syntax::MAX_PAGE_JBIG2_WORK`] by default). Images past it aren't drawn, nor images
     /// whose masks are past it, each with [`InterpreterWarning::ContentTruncated`].
@@ -157,6 +171,7 @@ impl Default for InterpreterSettings {
             #[cfg(not(feature = "embed-cmaps"))]
             cmap_resolver: Arc::new(|_| None),
             warning_sink: Arc::new(|_| {}),
+            extended_warning_sink: Arc::new(|_| {}),
             render_annotations: true,
             hide_comments: false,
             ocg_overrides: Arc::new(Vec::new()),
@@ -165,6 +180,8 @@ impl Default for InterpreterSettings {
             appearance_overrides: Arc::new(Vec::new()),
             cancelled: None,
             preview: false,
+            plate: None,
+            ink_sink: None,
             jbig2_work: hayro_syntax::MAX_PAGE_JBIG2_WORK,
         }
     }
@@ -183,6 +200,11 @@ pub enum InterpreterWarning {
     /// Patch (73): or an image was left out for the page's JBIG2 allowance, or because its JBIG2
     /// mask is past the allowance or one of the decoder's limits.
     ContentTruncated,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+/// Extended PdfCraft warnings kept separate from [`InterpreterWarning`] for backward compatibility.
+pub enum ExtendedWarning {
     /// PdfCraft patch (55): a colour could not be computed (a colour space that cannot be
     /// read, or a Separation or DeviceN tint transform that cannot be evaluated) and was painted
     /// in a fallback colour. Reported at most once per content stream.
@@ -554,7 +576,11 @@ fn interpret_window<'a>(
 ) {
     // PdfCraft patch (38): the resources' DefaultGray, DefaultRGB and DefaultCMYK replace the
     // device spaces that colour operators and images select (ISO 32000-2 §8.6.5.6).
-    let defaults = DefaultColorSpaces::new(resources, &context.interpreter_cache.object_cache);
+    let defaults = DefaultColorSpaces::new(
+        resources,
+        &context.interpreter_cache.object_cache,
+        context.settings.plate.is_some(),
+    );
     while let Some(op) = ops.next() {
         // PdfCraft patch: stop when the caller cancelled (see `InterpreterSettings::cancelled`).
         if context.settings.cancelled.as_ref().is_some_and(|c| c.load(Ordering::Relaxed)) {
@@ -911,13 +937,24 @@ fn interpret_window<'a>(
                     .next()
                     .is_some();
 
-                if has_outline {
+                // PdfCraft patch: a glyph shown in a clipping mode that contributes no outline
+                // still clips -- the clip is empty, so nothing paints through it, as a glyph with
+                // an outline clips to its shape. Applying nothing instead left what followed
+                // unmasked. A text object that shows no glyph at all is not this case and leaves
+                // the clipping path alone, and a glyph whose outline is unavailable (Type 3)
+                // leaves the real clip unknown, so both stay unclipped.
+                let state = &context.get().text_state;
+                let empty_clip = state.clip_shown && !state.clip_unsupported;
+
+                if has_outline || empty_clip {
                     let clip_path = context.get().ctm * context.get().text_state.clip_paths.clone();
 
                     context.push_clip_path(clip_path, FillRule::NonZero, device);
                 }
 
                 context.get_mut().text_state.clip_paths.truncate(0);
+                context.get_mut().text_state.clip_shown = false;
+                context.get_mut().text_state.clip_unsupported = false;
             }
             TypedInstruction::TextFont(t) => {
                 let name = t.0;
@@ -962,17 +999,7 @@ fn interpret_window<'a>(
                     .map(TextStateFont::Fallback);
                 }
 
-                for obj in s.0.iter::<Object<'_>>() {
-                    match obj {
-                        Object::Number(num) => {
-                            context.get_mut().text_state.apply_adjustment(num.as_f32());
-                        }
-                        Object::String(text) => {
-                            text::show_text_string(context, device, resources, &text);
-                        }
-                        _ => {}
-                    }
-                }
+                text::show_text_array(context, device, resources, s.0);
             }
             TypedInstruction::HorizontalScaling(h) => {
                 context.get_mut().text_state.horizontal_scaling = h.0.as_f32();
@@ -1034,6 +1061,7 @@ fn interpret_window<'a>(
                     XObject::new(
                         &s,
                         &context.settings.warning_sink,
+                        Some(&context.settings.extended_warning_sink),
                         &cache,
                         Some(&decoded_cache),
                         transfer_function.clone(),
@@ -1046,6 +1074,7 @@ fn interpret_window<'a>(
             }
             TypedInstruction::InlineImage(i) => {
                 let warning_sink = context.settings.warning_sink.clone();
+                let extended_warning_sink = context.settings.extended_warning_sink.clone();
                 let transfer_function = context.get().graphics_state.transfer_function.clone();
                 let cache = context.interpreter_cache.object_cache.clone();
                 // PdfCraft patch (80): an inline image naming a resource colour space that is an
@@ -1064,7 +1093,7 @@ fn interpret_window<'a>(
                     .and_then(|name| resources.get_color_space(&name))
                     .is_some_and(|cs| crate::color::has_unusable_hival(&cs))
                 {
-                    warning_sink(InterpreterWarning::MalformedIndexedImage);
+                    (context.settings.extended_warning_sink)(ExtendedWarning::MalformedIndexedImage);
                 }
                 // PdfCraft patch: inline images are not cached (see `DecodedImageKey`).
                 // PdfCraft patch (38): an inline image in a device space, named directly or by a
@@ -1073,6 +1102,7 @@ fn interpret_window<'a>(
                     i.0,
                     |name| named_color_space(name, resources, &defaults, context),
                     &warning_sink,
+                    Some(&extended_warning_sink),
                     &cache,
                     None,
                     false,
@@ -1104,7 +1134,10 @@ fn interpret_window<'a>(
                             &defaults,
                         )
                     })
-                    .map(|s| {
+                    .map(|mut s| {
+                        // Craft patch (flatten): `sh` ignores `/Background` (ISO 32000-2
+                        // §8.7.4.5.1); only a shading pattern paints it.
+                        s.background = None;
                         Pattern::Shading(ShadingPattern {
                             shading: Arc::new(s),
                             matrix: Affine::IDENTITY,
@@ -1172,7 +1205,7 @@ pub fn interpret<'a>(
     }
     // PdfCraft patch (55): and that a colour was painted in a fallback colour.
     if crate::color::take_color_fallback() {
-        (context.settings.warning_sink)(InterpreterWarning::ColorFallback);
+        (context.settings.extended_warning_sink)(ExtendedWarning::ColorFallback);
     }
 }
 
@@ -1234,6 +1267,6 @@ fn interpret_content<'a>(
     }
     // PdfCraft patch (55): and that a colour was painted in a fallback colour.
     if crate::color::take_color_fallback() {
-        (context.settings.warning_sink)(InterpreterWarning::ColorFallback);
+        (context.settings.extended_warning_sink)(ExtendedWarning::ColorFallback);
     }
 }

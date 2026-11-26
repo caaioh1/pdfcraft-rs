@@ -6,6 +6,7 @@ use crate::pattern::ShadingPattern;
 use crate::shading::{ShadingFunction, ShadingType, Triangle, TriangleVertex};
 use kurbo::{Affine, Point};
 use rustc_hash::FxHashMap;
+use std::sync::Mutex;
 use smallvec::{ToSmallVec, smallvec};
 
 /// A shading pattern that was encoded so it can be sampled.
@@ -176,7 +177,11 @@ impl ShadingPattern {
             transfer_function: self.transfer_function.clone(),
             // A `/Background` is painted wherever the triangles aren't (pattern fills), so such
             // a mesh has no extent to confine it to.
-            extent: if self.shading.background.is_some() { None } else { extent },
+            extent: if self.shading.background.is_some() {
+                None
+            } else {
+                extent
+            },
         }
     }
 }
@@ -481,10 +486,51 @@ fn encode_function_shading(domain: &[f32; 4], function: &ShadingFunction) -> Enc
         domain[3] as f64,
     );
 
+    let key_axis = key_axis(&domain, function);
     EncodedShadingType::FunctionBased {
         domain,
         function: function.clone(),
+        key_axis,
+        cache: Mutex::new(FxHashMap::default()),
     }
+}
+
+/// Most colours the one-axis cache keeps; past it, new ones are computed but not stored.
+const MAX_AXIS_CACHE: usize = 1 << 16;
+
+/// PdfCraft patch (36): the one input a function-based shading's colour depends on, when the
+/// other makes no difference. Chrome's print-to-PDF writes its gradients that way (a PostScript
+/// function that starts with "pop"), and sampling them per pixel took 7 s a page; with one
+/// input, a column or row costs one evaluation.
+/// shortcut: decided by probing a grid, not by analysing the program; a function that changes
+/// along the ignored axis only between the probes would be drawn flat.
+fn key_axis(domain: &kurbo::Rect, function: &ShadingFunction) -> Option<Axis> {
+    const N: usize = 17;
+    let at = |lo: f64, hi: f64, i: usize| (lo + (hi - lo) * i as f64 / (N - 1) as f64) as f32;
+    let (xs, ys) = (domain.x0..=domain.x1, domain.y0..=domain.y1);
+    let (mut flat_in_x, mut flat_in_y) = (true, true);
+    for j in 0..N {
+        let (x, y) = (at(*xs.start(), *xs.end(), j), at(*ys.start(), *ys.end(), j));
+        let first_x = function.eval(&smallvec![x, at(*ys.start(), *ys.end(), 0)]);
+        let first_y = function.eval(&smallvec![at(*xs.start(), *xs.end(), 0), y]);
+        for i in 1..N {
+            let (xi, yi) = (at(*xs.start(), *xs.end(), i), at(*ys.start(), *ys.end(), i));
+            flat_in_y &= function.eval(&smallvec![x, yi]) == first_x;
+            flat_in_x &= function.eval(&smallvec![xi, y]) == first_y;
+        }
+    }
+    match (flat_in_x, flat_in_y) {
+        (true, _) => Some(Axis::Y),
+        (_, true) => Some(Axis::X),
+        _ => None,
+    }
+}
+
+/// An input of a function-based shading.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Axis {
+    X,
+    Y,
 }
 
 #[derive(Debug)]
@@ -498,6 +544,10 @@ pub(crate) enum EncodedShadingType {
     FunctionBased {
         domain: kurbo::Rect,
         function: ShadingFunction,
+        /// The only input the colour depends on, if the other makes no difference.
+        key_axis: Option<Axis>,
+        /// Colour per value (bits) of key_axis; unused when that is None.
+        cache: Mutex<FxHashMap<u32, Option<AlphaColor>>>,
     },
     RadialAxial {
         function: ShadingFunction,
@@ -520,14 +570,39 @@ impl EncodedShadingType {
         color_space: &ColorSpace,
     ) -> Option<AlphaColor> {
         match self {
-            Self::FunctionBased { domain, function } => {
+            Self::FunctionBased {
+                domain,
+                function,
+                key_axis,
+                cache,
+            } => {
                 if !domain.contains(pos) {
-                    Some(bg_color)
-                } else {
-                    let out = function.eval(&smallvec![pos.x as f32, pos.y as f32])?;
+                    return Some(bg_color);
+                }
+                let compute = |x: f32, y: f32| {
+                    let out = function.eval(&smallvec![x, y])?;
                     // TODO: Clamp out-of-range values.
                     Some(color_space.to_rgba(&out, 1.0, false))
+                };
+                let (x, y) = (pos.x as f32, pos.y as f32);
+                // The ignored input is pinned to the domain's corner so equal keys give equal colours.
+                let (key, x, y) = match key_axis {
+                    None => return compute(x, y),
+                    Some(Axis::X) => (x.to_bits(), x, domain.y0 as f32),
+                    Some(Axis::Y) => (y.to_bits(), domain.x0 as f32, y),
+                };
+                // A poisoned cache only costs speed: fall back to computing.
+                let Ok(mut cache) = cache.lock() else {
+                    return compute(x, y);
+                };
+                if let Some(c) = cache.get(&key) {
+                    return *c;
                 }
+                let c = compute(x, y);
+                if cache.len() < MAX_AXIS_CACHE {
+                    cache.insert(key, c);
+                }
+                c
             }
             Self::RadialAxial {
                 function,
