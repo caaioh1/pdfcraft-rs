@@ -82,6 +82,7 @@ pub use added::{
 };
 
 mod apply;
+mod artifact_watermark;
 mod marks;
 mod place;
 
